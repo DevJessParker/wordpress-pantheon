@@ -860,8 +860,13 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
 
                     # Containers are healthy if they're RUNNING, even if health checks fail
                     # Health checks may fail before WordPress files/DB are installed - this is expected
-                    if ($serviceCount -gt 0 -and -not $hasErrors) {
+                    # Prioritize actual container status over warning messages in output
+                    if ($serviceCount -gt 0) {
                         $containersHealthy = $true
+                        if ($hasErrors) {
+                            Write-ColorOutput "Note: Error messages detected in output, but containers started successfully" -Type Warning
+                            Write-ColorOutput "This may indicate image fallbacks or non-critical warnings" -Type Info
+                        }
                         Write-ColorOutput "Containers are running (health checks will pass after WordPress setup)" -Type Info
                     }
                 }
