@@ -689,13 +689,18 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
             & lando start 2>&1 | Out-Host
         }
 
-        if ($LASTEXITCODE -eq 0) {
+        # Verify containers are actually running by checking lando info
+        Start-Sleep -Seconds 3
+        Write-ColorOutput "Verifying containers are running..." -Type Info
+        $landoInfo = & lando info --format json 2>&1 | Out-String
+
+        if ($LASTEXITCODE -eq 0 -and $landoInfo -match '\[' -and $landoInfo -notmatch '"service":\s*\[\s*\]') {
             Write-ColorOutput "Lando started successfully!" -Type Success
             $landoStarted = $true
             break
         } else {
             if ($attempt -lt $maxAttempts) {
-                Write-ColorOutput "Attempt $attempt failed, will perform more aggressive cleanup..." -Type Warning
+                Write-ColorOutput "Attempt $attempt failed - containers not running properly" -Type Warning
                 Start-Sleep -Seconds 2
             }
         }

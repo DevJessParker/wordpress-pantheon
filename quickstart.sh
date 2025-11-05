@@ -672,32 +672,14 @@ MAX_ATTEMPTS=3
 for attempt in $(seq 1 $MAX_ATTEMPTS); do
     if [ $attempt -eq 1 ]; then
         print_info "Starting Lando (attempt $attempt/$MAX_ATTEMPTS)..."
-        if lando start; then
-            print_success "Lando started successfully!"
-            LANDO_STARTED=true
-            break
-        else
-            if [ $attempt -lt $MAX_ATTEMPTS ]; then
-                print_warning "Attempt $attempt failed, will perform more aggressive cleanup..."
-                sleep 2
-            fi
-        fi
+        lando start
     elif [ $attempt -eq 2 ]; then
         print_warning "First attempt failed. Destroying and starting fresh (attempt $attempt/$MAX_ATTEMPTS)..."
         lando poweroff >/dev/null 2>&1
         sleep 2
         lando destroy -y >/dev/null 2>&1
         sleep 2
-        if lando start; then
-            print_success "Lando started successfully!"
-            LANDO_STARTED=true
-            break
-        else
-            if [ $attempt -lt $MAX_ATTEMPTS ]; then
-                print_warning "Attempt $attempt failed, will perform more aggressive cleanup..."
-                sleep 2
-            fi
-        fi
+        lando start
     else
         print_warning "Second attempt failed. Performing aggressive cleanup (attempt $attempt/$MAX_ATTEMPTS)..."
         lando poweroff >/dev/null 2>&1
@@ -707,10 +689,21 @@ for attempt in $(seq 1 $MAX_ATTEMPTS); do
         print_info "Cleaning Docker system..."
         docker system prune -f >/dev/null 2>&1
         sleep 2
-        if lando start; then
-            print_success "Lando started successfully!"
-            LANDO_STARTED=true
-            break
+        lando start
+    fi
+
+    # Verify containers are actually running by checking lando info
+    sleep 3
+    print_info "Verifying containers are running..."
+    if lando info --format json 2>/dev/null | grep -q '\[' && \
+       ! lando info --format json 2>/dev/null | grep -q '"service":\s*\[\s*\]'; then
+        print_success "Lando started successfully!"
+        LANDO_STARTED=true
+        break
+    else
+        if [ $attempt -lt $MAX_ATTEMPTS ]; then
+            print_warning "Attempt $attempt failed - containers not running properly"
+            sleep 2
         fi
     fi
 done
