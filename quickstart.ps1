@@ -649,6 +649,20 @@ if (Test-Path ".env") {
 
 Write-ColorOutput "Step 4: Starting Lando Environment" -Type Header
 
+# Check if Lando is already running and stop it for clean state
+Write-ColorOutput "Checking for running containers..." -Type Info
+try {
+    $landoInfo = & lando info --format json 2>&1 | Out-String
+    if ($LASTEXITCODE -eq 0 -and $landoInfo -match '\[') {
+        Write-ColorOutput "Lando is already running, stopping for clean restart..." -Type Info
+        & lando stop 2>&1 | Out-Null
+        Start-Sleep -Seconds 2
+        Write-ColorOutput "Previous containers stopped" -Type Success
+    }
+} catch {
+    # No containers running, continue
+}
+
 # Clean up any partial Composer installations before starting
 if ((Test-Path "vendor") -and (-not (Test-Path "vendor/autoload.php"))) {
     Write-ColorOutput "Cleaning up partial Composer installation..." -Type Info

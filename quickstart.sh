@@ -653,6 +653,15 @@ fi
 
 print_header "Step 4: Starting Lando Environment"
 
+# Check if Lando is already running and stop it for clean state
+print_info "Checking for running containers..."
+if lando info --format json 2>/dev/null | grep -q '\['; then
+    print_info "Lando is already running, stopping for clean restart..."
+    lando stop >/dev/null 2>&1
+    sleep 2
+    print_success "Previous containers stopped"
+fi
+
 # Clean up any partial Composer installations before starting
 if [ -d "vendor" ] && [ ! -f "vendor/autoload.php" ]; then
     print_info "Cleaning up partial Composer installation..."
