@@ -181,7 +181,8 @@ if [ "$SKIP_LANDO_INSTALL" = false ]; then
         print_warning "Lando is not installed"
         print_info "Installing Lando..."
 
-        LANDO_VERSION="3.21.0"
+        # Lando official installer URLs (no longer on GitHub releases)
+        # Latest stable versions are downloaded from lando.dev
 
         if [ "$OS" = "macos" ]; then
             # macOS installation
@@ -195,7 +196,7 @@ if [ "$SKIP_LANDO_INSTALL" = false ]; then
                 print_success "Lando installed successfully via Homebrew"
             else
                 print_info "Homebrew not found. Downloading Lando installer..."
-                LANDO_URL="https://github.com/lando/lando/releases/download/v${LANDO_VERSION}/lando-x64-v${LANDO_VERSION}.dmg"
+                LANDO_URL="https://files.lando.dev/installer/lando-x64-stable.dmg"
                 INSTALLER_PATH="/tmp/lando.dmg"
 
                 # Download with retry logic
@@ -276,7 +277,7 @@ if [ "$SKIP_LANDO_INSTALL" = false ]; then
 
             if command -v dpkg &> /dev/null; then
                 # Debian/Ubuntu
-                LANDO_URL="https://github.com/lando/lando/releases/download/v${LANDO_VERSION}/lando-x64-v${LANDO_VERSION}.deb"
+                LANDO_URL="https://files.lando.dev/installer/lando-x64-stable.deb"
                 INSTALLER_PATH="/tmp/lando.deb"
 
                 # Download with retry logic
@@ -332,7 +333,7 @@ if [ "$SKIP_LANDO_INSTALL" = false ]; then
 
             elif command -v rpm &> /dev/null; then
                 # Red Hat/CentOS/Fedora
-                LANDO_URL="https://github.com/lando/lando/releases/download/v${LANDO_VERSION}/lando-x64-v${LANDO_VERSION}.rpm"
+                LANDO_URL="https://files.lando.dev/installer/lando-x64-stable.rpm"
                 INSTALLER_PATH="/tmp/lando.rpm"
 
                 # Download with retry logic

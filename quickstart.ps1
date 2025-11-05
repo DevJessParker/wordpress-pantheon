@@ -158,9 +158,9 @@ if (-not $SkipLandoInstall) {
     } catch {
         Write-ColorOutput "Lando is not installed" -Type Warning
 
-        # Use latest stable version
-        $landoVersion = "3.21.0"
-        $landoUrl = "https://github.com/lando/lando/releases/download/v$landoVersion/lando-x64-v$landoVersion.exe"
+        # Lando official installer URL (no longer on GitHub releases)
+        # Latest stable version is downloaded from lando.dev
+        $landoUrl = "https://files.lando.dev/installer/lando-x64-stable.exe"
         $installerPath = Join-Path $env:TEMP "lando-installer.exe"
 
         # Download with retry logic
