@@ -796,9 +796,26 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
 
     # Check for critical errors in the output
     $hasErrors = $false
-    if ($startOutput -match "Error response from daemon|manifest.*not found|ERROR ==>|Error$") {
-        Write-ColorOutput "Detected errors in Lando startup output" -Type Warning
-        $hasErrors = $true
+    $errorLines = @()
+
+    if ($startOutput) {
+        # Extract lines containing errors
+        $outputLines = $startOutput -split "`n"
+        foreach ($line in $outputLines) {
+            if ($line -match "Error response from daemon|manifest.*not found|ERROR ==>|Error$") {
+                $errorLines += $line.Trim()
+            }
+        }
+
+        if ($errorLines.Count -gt 0) {
+            Write-ColorOutput "Detected errors in Lando startup output:" -Type Warning
+            Write-ColorOutput "" -Type Info
+            foreach ($errLine in $errorLines) {
+                Write-ColorOutput "  $errLine" -Type Error
+            }
+            Write-ColorOutput "" -Type Info
+            $hasErrors = $true
+        }
     }
 
     # Verify containers are actually running and healthy
@@ -816,10 +833,29 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
                 if ($landoData -and $landoData.Count -gt 0) {
                     # Check if services exist and are not in error state
                     $serviceCount = 0
+                    $serviceStatus = @()
+
                     foreach ($service in $landoData) {
                         if ($service.service) {
                             $serviceCount++
+                            $status = if ($service.healthy -eq $true) { "healthy" } elseif ($service.healthy -eq $false) { "UNHEALTHY" } else { "unknown" }
+                            $serviceStatus += "  - $($service.service): $status"
                         }
+                    }
+
+                    # Show service status for debugging
+                    if ($serviceCount -gt 0) {
+                        Write-ColorOutput "Container status:" -Type Info
+                        foreach ($status in $serviceStatus) {
+                            if ($status -match "UNHEALTHY") {
+                                Write-ColorOutput $status -Type Error
+                            } elseif ($status -match "healthy") {
+                                Write-ColorOutput $status -Type Success
+                            } else {
+                                Write-ColorOutput $status -Type Info
+                            }
+                        }
+                        Write-ColorOutput "" -Type Info
                     }
 
                     if ($serviceCount -gt 0 -and -not $hasErrors) {
@@ -827,8 +863,10 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
                     }
                 }
             } catch {
-                Write-ColorOutput "Could not parse lando info JSON" -Type Warning
+                Write-ColorOutput "Could not parse lando info JSON: $_" -Type Warning
             }
+        } else {
+            Write-ColorOutput "No containers detected in lando info output" -Type Warning
         }
 
         if ($containersHealthy) {
@@ -837,16 +875,19 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
             break
         } else {
             if ($hasErrors) {
-                Write-ColorOutput "Startup completed but with errors - containers may not be healthy" -Type Warning
+                Write-ColorOutput "Startup completed but with errors - see error details above" -Type Warning
+            } else {
+                Write-ColorOutput "Containers not running properly" -Type Warning
             }
             if ($attempt -lt $maxAttempts) {
-                Write-ColorOutput "Containers not running properly, will retry with more aggressive cleanup..." -Type Warning
+                Write-ColorOutput "Will retry with more aggressive cleanup..." -Type Warning
                 Start-Sleep -Seconds 2
             }
         }
     } catch {
+        Write-ColorOutput "Verification failed: $_" -Type Warning
         if ($attempt -lt $maxAttempts) {
-            Write-ColorOutput "Verification failed, will retry with more aggressive cleanup..." -Type Warning
+            Write-ColorOutput "Will retry with more aggressive cleanup..." -Type Warning
             Start-Sleep -Seconds 2
         }
     }
