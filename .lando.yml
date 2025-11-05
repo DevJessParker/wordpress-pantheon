@@ -41,6 +41,7 @@ services:
       password: wordpress
       database: wordpress
     overrides:
+      image: bitnami/mysql:8.0
       environment:
         MYSQL_ROOT_PASSWORD: root
 
