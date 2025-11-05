@@ -730,9 +730,18 @@ sleep 3
 
 # Destroy existing wordpress-pantheon project for clean slate
 print_info "Destroying existing project containers for clean start..."
-lando destroy -y >/dev/null 2>&1
-sleep 2
-print_success "Project destroyed - starting fresh build..."
+
+# Check if project exists first
+PROJECT_INFO=$(lando info --format json 2>/dev/null || echo "")
+
+if echo "$PROJECT_INFO" | grep -q '\[' && echo "$PROJECT_INFO" | grep -q 'wordpress-pantheon'; then
+    # Project exists, destroy it
+    lando destroy -y >/dev/null 2>&1
+    sleep 2
+    print_success "Existing project destroyed - starting fresh build..."
+else
+    print_success "No existing project found - proceeding with fresh build..."
+fi
 
 print_info "Starting Lando... (this may take several minutes on first run)"
 

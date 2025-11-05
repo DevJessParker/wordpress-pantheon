@@ -726,9 +726,26 @@ Start-Sleep -Seconds 3
 
 # Destroy existing wordpress-pantheon project for clean slate
 Write-ColorOutput "Destroying existing project containers for clean start..." -Type Info
-& lando destroy -y 2>&1 | Out-Null
-Start-Sleep -Seconds 2
-Write-ColorOutput "Project destroyed - starting fresh build..." -Type Success
+try {
+    # Check if project exists first
+    $ErrorActionPreference = 'Continue'
+    $projectInfo = & lando info --format json 2>&1 | Out-String
+    $ErrorActionPreference = 'Stop'
+
+    if ($projectInfo -match '\[' -and $projectInfo -match 'wordpress-pantheon') {
+        # Project exists, destroy it
+        $ErrorActionPreference = 'Continue'
+        & lando destroy -y 2>&1 | Out-Null
+        $ErrorActionPreference = 'Stop'
+        Start-Sleep -Seconds 2
+        Write-ColorOutput "Existing project destroyed - starting fresh build..." -Type Success
+    } else {
+        Write-ColorOutput "No existing project found - proceeding with fresh build..." -Type Success
+    }
+} catch {
+    # Destroy command failed or no project exists - both are fine, continue
+    Write-ColorOutput "No existing project found - proceeding with fresh build..." -Type Success
+}
 
 Write-ColorOutput "Starting Lando... (this may take several minutes on first run)" -Type Info
 
