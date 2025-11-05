@@ -1,0 +1,151 @@
+##############################################################################
+# GitLab CI/CD Pipeline for Pantheon Deployment
+##############################################################################
+
+variables:
+  PHP_VERSION: "8.2"
+  NODE_VERSION: "20"
+
+stages:
+  - security
+  - test
+  - deploy
+  - post-deploy
+
+# Security scanning
+security:scan:
+  stage: security
+  image: aquasec/trivy:latest
+  script:
+    - trivy fs --exit-code 0 --severity HIGH,CRITICAL .
+  artifacts:
+    reports:
+      container_scanning: gl-container-scanning-report.json
+  allow_failure: false
+
+# Code quality checks
+test:phpcs:
+  stage: test
+  image: php:${PHP_VERSION}-cli
+  before_script:
+    - apt-get update && apt-get install -y git unzip
+    - curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+  script:
+    - |
+      if [ -f "composer.json" ]; then
+        composer install --no-interaction --prefer-dist --no-dev
+        composer run-script phpcs || echo "No phpcs configured"
+      fi
+  only:
+    - merge_requests
+    - main
+    - master
+
+# Dependency check
+test:dependencies:
+  stage: test
+  image: php:${PHP_VERSION}-cli
+  before_script:
+    - apt-get update && apt-get install -y git unzip
+    - curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+  script:
+    - |
+      if [ -f "composer.json" ]; then
+        composer validate --strict
+        composer audit || true
+      fi
+  only:
+    - merge_requests
+    - main
+    - master
+
+# Deploy to Pantheon Dev
+deploy:dev:
+  stage: deploy
+  image: php:${PHP_VERSION}-cli
+  before_script:
+    - apt-get update && apt-get install -y git openssh-client curl
+    - eval $(ssh-agent -s)
+    - echo "$PANTHEON_SSH_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - ssh-keyscan -H codeserver.dev.${PANTHEON_SITE_ID}.drush.in >> ~/.ssh/known_hosts
+    # Install Terminus
+    - curl -L https://github.com/pantheon-systems/terminus/releases/download/3.5.0/terminus.phar -o /usr/local/bin/terminus
+    - chmod +x /usr/local/bin/terminus
+    - terminus auth:login --machine-token=$TERMINUS_TOKEN
+  script:
+    - terminus env:wake ${PANTHEON_SITE_NAME}.dev
+    - terminus connection:set ${PANTHEON_SITE_NAME}.dev git
+    - git remote add pantheon ssh://codeserver.dev.${PANTHEON_SITE_ID}@codeserver.dev.${PANTHEON_SITE_ID}.drush.in:2222/~/repository.git || true
+    - git push pantheon HEAD:master -f
+    - terminus env:clear-cache ${PANTHEON_SITE_NAME}.dev
+    - terminus wp ${PANTHEON_SITE_NAME}.dev -- core update-db
+  only:
+    - main
+    - master
+  environment:
+    name: dev
+    url: https://dev-$PANTHEON_SITE_NAME.pantheonsite.io
+
+# Deploy to Pantheon Test (manual)
+deploy:test:
+  stage: deploy
+  image: php:${PHP_VERSION}-cli
+  before_script:
+    - apt-get update && apt-get install -y git openssh-client curl
+    - curl -L https://github.com/pantheon-systems/terminus/releases/download/3.5.0/terminus.phar -o /usr/local/bin/terminus
+    - chmod +x /usr/local/bin/terminus
+    - terminus auth:login --machine-token=$TERMINUS_TOKEN
+  script:
+    - terminus env:deploy ${PANTHEON_SITE_NAME}.test --sync-content --note="Deployed from GitLab CI"
+    - terminus env:clear-cache ${PANTHEON_SITE_NAME}.test
+    - terminus wp ${PANTHEON_SITE_NAME}.test -- core update-db
+  when: manual
+  only:
+    - main
+    - master
+  environment:
+    name: test
+    url: https://test-$PANTHEON_SITE_NAME.pantheonsite.io
+
+# Deploy to Pantheon Live (manual with protection)
+deploy:live:
+  stage: deploy
+  image: php:${PHP_VERSION}-cli
+  before_script:
+    - apt-get update && apt-get install -y git openssh-client curl
+    - curl -L https://github.com/pantheon-systems/terminus/releases/download/3.5.0/terminus.phar -o /usr/local/bin/terminus
+    - chmod +x /usr/local/bin/terminus
+    - terminus auth:login --machine-token=$TERMINUS_TOKEN
+  script:
+    - terminus env:deploy ${PANTHEON_SITE_NAME}.live --note="Deployed from GitLab CI"
+    - terminus env:clear-cache ${PANTHEON_SITE_NAME}.live
+    - terminus wp ${PANTHEON_SITE_NAME}.live -- core update-db
+  when: manual
+  only:
+    - main
+    - master
+  environment:
+    name: production
+    url: https://live-$PANTHEON_SITE_NAME.pantheonsite.io
+
+# Post-deployment checks
+post-deploy:health-check:
+  stage: post-deploy
+  image: curlimages/curl:latest
+  script:
+    - |
+      echo "Running health checks..."
+      RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" https://dev-${PANTHEON_SITE_NAME}.pantheonsite.io)
+      if [ $RESPONSE -eq 200 ]; then
+        echo "✅ Health check passed (HTTP $RESPONSE)"
+      else
+        echo "❌ Health check failed (HTTP $RESPONSE)"
+        exit 1
+      fi
+  only:
+    - main
+    - master
+  needs:
+    - deploy:dev

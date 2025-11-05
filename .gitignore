@@ -1,0 +1,90 @@
+# WordPress
+wp-content/uploads/
+wp-content/blogs.dir/
+wp-content/upgrade/
+wp-content/backup-db/
+wp-content/advanced-cache.php
+wp-content/wp-cache-config.php
+wp-content/cache/
+wp-content/debug.log
+
+# WordPress Backup files
+*.sql
+*.sql.gz
+*.tar.gz
+backups/
+
+# Local development
+.env
+.env.local
+.env.*.local
+
+# Lando
+.lando.local.yml
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
+
+# Composer
+vendor/
+composer.lock
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Build artifacts
+dist/
+build/
+*.min.js
+*.min.css
+
+# Security - NEVER commit these!
+*.pem
+*.key
+*.p12
+*.pfx
+private/*
+!private/scripts/
+secrets/
+credentials.json
+service-account.json
+
+# Pantheon
+pantheon.upstream.yml
+.pantheon-token
+
+# Local WordPress config (use .env instead)
+wp-config-local.php
+
+# Plugin and theme development
+*.zip
+*.tar

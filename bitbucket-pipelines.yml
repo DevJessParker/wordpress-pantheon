@@ -1,0 +1,115 @@
+##############################################################################
+# Bitbucket Pipelines for Pantheon Deployment
+##############################################################################
+
+image: php:8.2-cli
+
+definitions:
+  caches:
+    composer: ~/.composer/cache
+
+  steps:
+    - step: &security-scan
+        name: Security Scan
+        image: aquasec/trivy:latest
+        script:
+          - trivy fs --exit-code 0 --severity HIGH,CRITICAL .
+
+    - step: &code-quality
+        name: Code Quality Checks
+        caches:
+          - composer
+        script:
+          - apt-get update && apt-get install -y git unzip
+          - curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+          - |
+            if [ -f "composer.json" ]; then
+              composer install --no-interaction --prefer-dist --no-dev
+              composer run-script phpcs || echo "No phpcs configured"
+            fi
+
+    - step: &deploy-dev
+        name: Deploy to Pantheon Dev
+        deployment: dev
+        script:
+          # Install dependencies
+          - apt-get update && apt-get install -y git openssh-client curl
+
+          # Setup SSH
+          - eval $(ssh-agent -s)
+          - echo "$PANTHEON_SSH_KEY" | tr -d '\r' | ssh-add -
+          - mkdir -p ~/.ssh
+          - chmod 700 ~/.ssh
+          - ssh-keyscan -H codeserver.dev.${PANTHEON_SITE_ID}.drush.in >> ~/.ssh/known_hosts
+
+          # Install Terminus
+          - curl -L https://github.com/pantheon-systems/terminus/releases/download/3.5.0/terminus.phar -o /usr/local/bin/terminus
+          - chmod +x /usr/local/bin/terminus
+          - terminus auth:login --machine-token=$TERMINUS_TOKEN
+
+          # Deploy
+          - terminus env:wake ${PANTHEON_SITE_NAME}.dev
+          - terminus connection:set ${PANTHEON_SITE_NAME}.dev git
+          - git remote add pantheon ssh://codeserver.dev.${PANTHEON_SITE_ID}@codeserver.dev.${PANTHEON_SITE_ID}.drush.in:2222/~/repository.git || true
+          - git push pantheon HEAD:master -f
+
+          # Post-deploy
+          - terminus env:clear-cache ${PANTHEON_SITE_NAME}.dev
+          - terminus wp ${PANTHEON_SITE_NAME}.dev -- core update-db
+          - echo "✅ Deployed to Pantheon Dev"
+
+    - step: &deploy-test
+        name: Deploy to Pantheon Test
+        deployment: test
+        trigger: manual
+        script:
+          - apt-get update && apt-get install -y curl
+          - curl -L https://github.com/pantheon-systems/terminus/releases/download/3.5.0/terminus.phar -o /usr/local/bin/terminus
+          - chmod +x /usr/local/bin/terminus
+          - terminus auth:login --machine-token=$TERMINUS_TOKEN
+          - terminus env:deploy ${PANTHEON_SITE_NAME}.test --sync-content --note="Deployed from Bitbucket"
+          - terminus env:clear-cache ${PANTHEON_SITE_NAME}.test
+          - terminus wp ${PANTHEON_SITE_NAME}.test -- core update-db
+          - echo "✅ Deployed to Pantheon Test"
+
+    - step: &deploy-live
+        name: Deploy to Pantheon Live
+        deployment: production
+        trigger: manual
+        script:
+          - apt-get update && apt-get install -y curl
+          - curl -L https://github.com/pantheon-systems/terminus/releases/download/3.5.0/terminus.phar -o /usr/local/bin/terminus
+          - chmod +x /usr/local/bin/terminus
+          - terminus auth:login --machine-token=$TERMINUS_TOKEN
+          - terminus env:deploy ${PANTHEON_SITE_NAME}.live --note="Deployed from Bitbucket"
+          - terminus env:clear-cache ${PANTHEON_SITE_NAME}.live
+          - terminus wp ${PANTHEON_SITE_NAME}.live -- core update-db
+          - echo "✅ Deployed to Pantheon Live"
+
+pipelines:
+  default:
+    - step: *security-scan
+    - step: *code-quality
+
+  branches:
+    main:
+      - step: *security-scan
+      - step: *code-quality
+      - step: *deploy-dev
+
+    master:
+      - step: *security-scan
+      - step: *code-quality
+      - step: *deploy-dev
+
+  pull-requests:
+    '**':
+      - step: *security-scan
+      - step: *code-quality
+
+  custom:
+    deploy-test:
+      - step: *deploy-test
+
+    deploy-live:
+      - step: *deploy-live

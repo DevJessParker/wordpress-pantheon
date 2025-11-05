@@ -1,0 +1,65 @@
+##############################################################################
+# Pantheon Platform Configuration
+# https://pantheon.io/docs/pantheon-yml
+##############################################################################
+
+api_version: 1
+
+# PHP Version
+php_version: 8.2
+
+# Drush version
+drush_version: 8
+
+# Build step (composer install)
+build_step: true
+
+# Protected Web Paths
+# Prevent access to these paths on Pantheon
+protected_web_paths:
+  - /private/
+  - /.git/
+  - /vendor/
+
+# Nested docroot (if WordPress is in a subdirectory)
+# web_docroot: false
+
+# Enable Quicksilver Platform Hooks
+# https://pantheon.io/docs/quicksilver
+workflows:
+  # Clear cache after code sync
+  sync_code:
+    after:
+      - type: webphp
+        description: Clear caches after code deployment
+        script: private/scripts/clear_cache.php
+
+  # Database sanitization after clone
+  clone_database:
+    after:
+      - type: webphp
+        description: Sanitize database after cloning
+        script: private/scripts/sanitize_db.php
+
+  # Clear cache after database deployment
+  deploy:
+    after:
+      - type: webphp
+        description: Clear all caches after deployment
+        script: private/scripts/clear_cache.php
+
+  # Cache warming
+  deploy_product:
+    after:
+      - type: webphp
+        description: Warm cache after deployment
+        script: private/scripts/warm_cache.php
+
+# Search and Replace (for domain changes during deployment)
+search_replace:
+  - from: dev-yoursite.pantheonsite.io
+    to: test-yoursite.pantheonsite.io
+  - from: test-yoursite.pantheonsite.io
+    to: live-yoursite.pantheonsite.io
+  - from: dev-yoursite.pantheonsite.io
+    to: www.yoursite.com

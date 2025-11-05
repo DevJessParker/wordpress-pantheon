@@ -1,0 +1,193 @@
+name: Deploy to Pantheon
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - test
+          - live
+
+jobs:
+  # Security scanning job
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run security scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  # Code quality checks
+  code-quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, xml, ctype, json, tokenizer, dom, pdo, mysql
+          coverage: none
+
+      - name: Install Composer dependencies
+        run: |
+          if [ -f "composer.json" ]; then
+            composer install --no-interaction --prefer-dist --no-dev
+          fi
+
+      - name: PHP CodeSniffer (WordPress Coding Standards)
+        run: |
+          if [ -f "composer.json" ] && composer show | grep -q "wp-coding-standards/wpcs"; then
+            composer run-script phpcs || echo "No phpcs script found"
+          else
+            echo "WordPress Coding Standards not installed"
+          fi
+
+  # Deploy to Pantheon
+  deploy:
+    name: Deploy to Pantheon
+    runs-on: ubuntu-latest
+    needs: [security-scan, code-quality]
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup SSH Keys
+        env:
+          PANTHEON_SSH_KEY: ${{ secrets.PANTHEON_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$PANTHEON_SSH_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H codeserver.dev.${{ secrets.PANTHEON_SITE_ID }}.drush.in >> ~/.ssh/known_hosts
+
+      - name: Install Terminus
+        run: |
+          mkdir -p ~/terminus
+          cd ~/terminus
+          curl -L https://github.com/pantheon-systems/terminus/releases/download/3.5.0/terminus.phar --output terminus
+          chmod +x terminus
+          sudo mv terminus /usr/local/bin/terminus
+          terminus --version
+
+      - name: Authenticate with Terminus
+        env:
+          TERMINUS_TOKEN: ${{ secrets.TERMINUS_TOKEN }}
+        run: |
+          terminus auth:login --machine-token=$TERMINUS_TOKEN
+
+      - name: Determine target environment
+        id: determine-env
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+          else
+            echo "environment=dev" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Wake Pantheon environment
+        env:
+          PANTHEON_SITE: ${{ secrets.PANTHEON_SITE_NAME }}
+        run: |
+          ENV=${{ steps.determine-env.outputs.environment }}
+          terminus env:wake ${PANTHEON_SITE}.${ENV}
+
+      - name: Set connection mode to Git
+        env:
+          PANTHEON_SITE: ${{ secrets.PANTHEON_SITE_NAME }}
+        run: |
+          ENV=${{ steps.determine-env.outputs.environment }}
+          terminus connection:set ${PANTHEON_SITE}.${ENV} git
+
+      - name: Push to Pantheon
+        env:
+          PANTHEON_SITE: ${{ secrets.PANTHEON_SITE_NAME }}
+          PANTHEON_SITE_ID: ${{ secrets.PANTHEON_SITE_ID }}
+        run: |
+          ENV=${{ steps.determine-env.outputs.environment }}
+          git remote add pantheon ssh://codeserver.dev.${PANTHEON_SITE_ID}@codeserver.dev.${PANTHEON_SITE_ID}.drush.in:2222/~/repository.git || true
+          git push pantheon HEAD:master -f
+
+      - name: Clear Pantheon cache
+        env:
+          PANTHEON_SITE: ${{ secrets.PANTHEON_SITE_NAME }}
+        run: |
+          ENV=${{ steps.determine-env.outputs.environment }}
+          terminus env:clear-cache ${PANTHEON_SITE}.${ENV}
+
+      - name: Run database updates
+        env:
+          PANTHEON_SITE: ${{ secrets.PANTHEON_SITE_NAME }}
+        run: |
+          ENV=${{ steps.determine-env.outputs.environment }}
+          terminus wp ${PANTHEON_SITE}.${ENV} -- core update-db
+
+      - name: Deployment notification
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ Deployment to Pantheon ${{ steps.determine-env.outputs.environment }} successful!"
+          else
+            echo "❌ Deployment to Pantheon ${{ steps.determine-env.outputs.environment }} failed!"
+          fi
+
+  # Visual regression testing (optional)
+  visual-tests:
+    name: Visual Regression Tests
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: |
+          if [ -f "package.json" ]; then
+            npm ci
+          fi
+
+      - name: Run visual tests
+        run: |
+          echo "Visual regression tests would run here"
+          # Example: npm run test:visual

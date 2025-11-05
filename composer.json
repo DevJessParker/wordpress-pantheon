@@ -1,0 +1,57 @@
+{
+    "name": "yourcompany/wordpress-pantheon",
+    "description": "WordPress site for Pantheon with local development setup",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.2",
+        "composer/installers": "^2.0",
+        "vlucas/phpdotenv": "^5.5",
+        "pantheon-systems/wordpress-composer": "*"
+    },
+    "require-dev": {
+        "wp-coding-standards/wpcs": "^3.0",
+        "phpcompatibility/phpcompatibility-wp": "^2.1",
+        "dealerdirect/phpcodesniffer-composer-installer": "^1.0"
+    },
+    "config": {
+        "vendor-dir": "vendor",
+        "preferred-install": "dist",
+        "optimize-autoloader": true,
+        "sort-packages": true,
+        "allow-plugins": {
+            "composer/installers": true,
+            "dealerdirect/phpcodesniffer-composer-installer": true,
+            "pantheon-systems/wordpress-composer": true
+        }
+    },
+    "extra": {
+        "installer-paths": {
+            "wp-content/plugins/{$name}": ["type:wordpress-plugin"],
+            "wp-content/themes/{$name}": ["type:wordpress-theme"],
+            "wp-content/mu-plugins/{$name}": ["type:wordpress-muplugin"]
+        },
+        "wordpress-install-dir": "wordpress"
+    },
+    "scripts": {
+        "phpcs": [
+            "phpcs --standard=WordPress --extensions=php --ignore=*/vendor/*,*/node_modules/*,*/wordpress/* ."
+        ],
+        "phpcbf": [
+            "phpcbf --standard=WordPress --extensions=php --ignore=*/vendor/*,*/node_modules/*,*/wordpress/* ."
+        ],
+        "test": [
+            "@phpcs"
+        ],
+        "post-install-cmd": [
+            "@php -r \"if (!file_exists('.env')) { copy('.env.example', '.env'); echo 'Created .env file from .env.example\\n'; }\""
+        ]
+    },
+    "repositories": [
+        {
+            "type": "composer",
+            "url": "https://wpackagist.org",
+            "only": ["wpackagist-plugin/*", "wpackagist-theme/*"]
+        }
+    ]
+}
