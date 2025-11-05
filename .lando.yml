@@ -10,6 +10,16 @@ services:
     build_as_root:
       - apt-get update -y
       - apt-get install -y vim wget
+    build:
+      # Only install Composer dependencies if vendor/ doesn't exist
+      # This speeds up subsequent Lando starts significantly
+      - >
+        if [ ! -d "vendor" ] || [ ! -f "vendor/autoload.php" ]; then
+          echo "Installing Composer dependencies...";
+          composer install --no-interaction --prefer-dist;
+        else
+          echo "Composer dependencies already installed, skipping...";
+        fi
     overrides:
       environment:
         # Enable WP_DEBUG for local development
