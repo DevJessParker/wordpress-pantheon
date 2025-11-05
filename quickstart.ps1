@@ -343,19 +343,39 @@ if (-not $SkipLandoInstall) {
                     if (Test-Path "$installDir\lando.exe") {
                         Write-ColorOutput "Lando executable found at: $installDir" -Type Success
 
-                        # Explicitly add to system PATH if not already there
-                        $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
-                        if ($machinePath -notlike "*$installDir*") {
-                            try {
-                                Write-ColorOutput "Adding $installDir to system PATH..." -Type Info
-                                [Environment]::SetEnvironmentVariable("Path", "$machinePath;$installDir", "Machine")
-                                Write-ColorOutput "Successfully added to system PATH (will persist in new sessions)" -Type Success
-                            } catch {
-                                Write-ColorOutput "Could not update system PATH (may need Administrator privileges)" -Type Warning
-                                Write-ColorOutput "You can add manually later: System Properties -> Environment Variables" -Type Info
+                        # Explicitly add to PATH if not already there
+                        # Use Machine PATH if admin, User PATH otherwise
+                        $isAdminNow = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+                        if ($isAdminNow) {
+                            # Running as admin - update system-wide PATH
+                            $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+                            if ($machinePath -notlike "*$installDir*") {
+                                try {
+                                    Write-ColorOutput "Adding $installDir to system PATH..." -Type Info
+                                    [Environment]::SetEnvironmentVariable("Path", "$machinePath;$installDir", "Machine")
+                                    Write-ColorOutput "Successfully added to system PATH (persists for all users)" -Type Success
+                                } catch {
+                                    Write-ColorOutput "Could not update system PATH: $_" -Type Warning
+                                }
+                            } else {
+                                Write-ColorOutput "Already in system PATH" -Type Success
                             }
                         } else {
-                            Write-ColorOutput "Already in system PATH" -Type Success
+                            # Running as regular user - update user PATH
+                            $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+                            if ($userPath -notlike "*$installDir*") {
+                                try {
+                                    Write-ColorOutput "Adding $installDir to user PATH..." -Type Info
+                                    [Environment]::SetEnvironmentVariable("Path", "$userPath;$installDir", "User")
+                                    Write-ColorOutput "Successfully added to user PATH (persists for your account)" -Type Success
+                                } catch {
+                                    Write-ColorOutput "Could not update user PATH: $_" -Type Warning
+                                    Write-ColorOutput "You can add manually: System Properties -> Environment Variables -> User Variables" -Type Info
+                                }
+                            } else {
+                                Write-ColorOutput "Already in user PATH" -Type Success
+                            }
                         }
 
                         # Refresh environment variables for current session
