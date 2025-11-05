@@ -1,3 +1,6 @@
+# WordPress Core (managed by Composer)
+wordpress/
+
 # WordPress
 wp-content/uploads/
 wp-content/blogs.dir/
@@ -21,6 +24,10 @@ backups/
 
 # Lando
 .lando.local.yml
+
+# Test scripts (for development only)
+test-uuid-extraction.ps1
+test-uuid-extraction.sh
 
 # IDE and editor files
 .vscode/
@@ -60,6 +67,7 @@ temp/
 .Trashes
 ehthumbs.db
 Thumbs.db
+desktop.ini
 
 # Build artifacts
 dist/
@@ -84,6 +92,7 @@ pantheon.upstream.yml
 
 # Local WordPress config (use .env instead)
 wp-config-local.php
+wp-config.php
 
 # Plugin and theme development
 *.zip

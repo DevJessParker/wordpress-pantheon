@@ -13,32 +13,60 @@ A complete local development environment for WordPress on Pantheon, featuring da
 - **Security Tools** - Automated security scanning and best practices
 - **Developer Scripts** - Common tasks automated
 
-## ⚡ Quickstart (Automated Setup)
+## 👥 For New Team Members
 
-**The fastest way to get started!** Our automated setup scripts will install everything you need:
+**Welcome to the team!** Follow these steps to get your local environment set up:
 
-### Windows (PowerShell)
+### Prerequisites
+
+Before running the quickstart script, make sure you have:
+
+1. ✅ **Docker Desktop** installed and **running**
+   - [Download Docker Desktop](https://www.docker.com/products/docker-desktop)
+   - Start Docker Desktop before proceeding
+
+2. ✅ **Git** installed
+   - [Download Git](https://git-scm.com/downloads)
+
+3. ✅ **Pantheon Machine Token** ready
+   - Get yours at: https://dashboard.pantheon.io/personal-settings/machine-tokens
+   - Create a new token if you don't have one
+
+4. ✅ **Administrator privileges**
+   - **Windows**: Run PowerShell as Administrator
+   - **macOS/Linux**: You'll need sudo access
+
+### Team Quickstart
+
+#### Windows (PowerShell as Administrator)
 ```powershell
-# Clone the repository
+# 1. Clone the repository
 git clone <your-repo-url>
 cd wordpress-pantheon
 
-# Run the quickstart script
+# 2. Run the quickstart script (as Administrator!)
 .\quickstart.ps1
 ```
 
-### macOS/Linux
+**When prompted, provide:**
+- Site Name: `intelliguard1`
+- Site UUID: Paste the full URL from Pantheon Dashboard (e.g., `https://dashboard.pantheon.io/sites/<uuid>#dev/code`)
+- Machine Token: Paste your token from the link above
+
+#### macOS/Linux
 ```bash
-# Clone the repository
+# 1. Clone the repository
 git clone <your-repo-url>
 cd wordpress-pantheon
 
-# Run the quickstart script
+# 2. Run the quickstart script (with sudo!)
 chmod +x quickstart.sh
-./quickstart.sh
+sudo ./quickstart.sh
 ```
 
-The quickstart script will:
+### What the Script Does
+
+The quickstart script will automatically:
 - ✅ Check for required software (Git, Docker)
 - ✅ Install Lando automatically
 - ✅ Configure your environment with guided prompts
@@ -46,7 +74,33 @@ The quickstart script will:
 - ✅ Start your local environment
 - ✅ Pull database and files from Pantheon Dev
 
-**That's it!** Your development environment will be ready in minutes.
+**First-time setup takes 15-20 minutes.** Subsequent starts are much faster (< 1 minute).
+
+### Access Your Local Site
+
+Once setup completes, access:
+- **WordPress Site**: https://wordpress-pantheon.lndo.site
+- **Admin**: https://wordpress-pantheon.lndo.site/wp-admin (use Pantheon credentials)
+- **PhpMyAdmin**: https://pma.wordpress-pantheon.lndo.site
+
+**Accept the SSL warning** - this is normal for local development with self-signed certificates.
+
+### ⚠️ Important: What NOT to Commit
+
+**NEVER commit these files:**
+- `.env` - Contains your personal tokens and credentials
+- `wordpress/` - WordPress core (managed by Composer)
+- `vendor/` - PHP dependencies (managed by Composer)
+- `wp-content/uploads/` - Media files (synced from Pantheon)
+- Any `.log` files
+
+**Already tracked in `.gitignore`** - you're safe if you follow normal git workflows!
+
+---
+
+## ⚡ Quickstart (Automated Setup)
+
+**The fastest way to get started!** Our automated setup scripts will install everything you need.
 
 ---
 
@@ -231,7 +285,59 @@ wordpress-pantheon/
 
 ## 🔄 Development Workflow
 
-### 1. Daily Development
+### Daily Team Workflow
+
+**Start of Day:**
+```bash
+# 1. Make sure Docker Desktop is running
+
+# 2. Pull latest code
+git pull origin main
+
+# 3. Start Lando
+lando start
+
+# 4. Sync latest database from Pantheon Dev
+lando pull-db
+
+# 5. (Optional) Sync latest uploads/media
+lando pull-files
+```
+
+**During Development:**
+```bash
+# Edit files in your IDE (VS Code, PhpStorm, etc.)
+# Files are in: wp-content/themes/ and wp-content/plugins/
+
+# Test your changes
+# Browser: https://wordpress-pantheon.lndo.site
+
+# Check for issues
+lando wp core verify-checksums
+lando security-check
+```
+
+**End of Day:**
+```bash
+# 1. Commit your changes
+git add .
+git commit -m "Feature: Description of your changes"
+
+# 2. Push to your branch
+git push origin your-branch-name
+
+# 3. Stop Lando (saves resources)
+lando stop
+```
+
+**Next Morning:**
+```bash
+# Just start where you left off
+lando start
+# Your database and files are still there!
+```
+
+### 1. Daily Development (Old Format)
 ```bash
 # Start your day
 lando start
@@ -319,6 +425,87 @@ See [SECURITY.md](SECURITY.md) for detailed setup instructions.
 
 ## 🐛 Troubleshooting
 
+### Common Team Issues
+
+#### "I see a 404 error when I visit the site"
+
+**Cause**: WordPress isn't installed yet or Composer is still running.
+
+**Fix**:
+```bash
+# Check if WordPress core is installed
+Test-Path ".\wordpress\index.php"  # Windows
+ls wordpress/index.php              # macOS/Linux
+
+# If false, install dependencies
+lando composer install --no-dev
+
+# Pull database
+lando pull-db
+
+# Restart
+lando restart
+```
+
+#### "Composer installation is taking forever"
+
+**Cause**: `php_codesniffer` is a large package (1000+ files) and slow to extract in Docker.
+
+**Fix**: Install without dev dependencies (you don't need code standards to run the site):
+```bash
+# Cancel the current install (Ctrl+C)
+lando composer install --no-dev
+
+# Later, install dev tools when you have time
+lando composer install
+```
+
+#### "The site works but I can't log in"
+
+**Cause**: You need to pull the database from Pantheon.
+
+**Fix**:
+```bash
+lando pull-db
+# Use your Pantheon Dev credentials to log in
+```
+
+#### "I got a merge conflict in .env"
+
+**Cause**: `.env` shouldn't be in git!
+
+**Fix**:
+```bash
+# .env should already be in .gitignore
+# If you accidentally committed it:
+git rm --cached .env
+git commit -m "Remove .env from git"
+
+# Each team member has their own .env
+# Copy from .env.example and configure with your own token
+```
+
+#### "Docker says port is already in use"
+
+**Cause**: Another container or service is using port 80/443.
+
+**Fix**:
+```bash
+# Stop other Lando projects
+lando poweroff
+
+# Or restart Docker Desktop
+```
+
+#### "I updated the .lando.yml but nothing changed"
+
+**Cause**: Lando needs to rebuild when config changes.
+
+**Fix**:
+```bash
+lando rebuild -y
+```
+
 ### Lando won't start
 ```bash
 # Rebuild Lando
@@ -356,6 +543,16 @@ lando pull-db
 lando ssh
 chown -R www-data:www-data /app/wp-content/
 ```
+
+### Still Having Issues?
+
+**Check these first:**
+1. ✅ Is Docker Desktop running?
+2. ✅ Did you run the quickstart script as Administrator/sudo?
+3. ✅ Did you pull the latest code? (`git pull origin main`)
+4. ✅ Try: `lando rebuild -y`
+
+**Ask the team** - Someone else probably hit the same issue!
 
 ## 📚 Documentation
 
