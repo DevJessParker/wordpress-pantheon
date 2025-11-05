@@ -73,12 +73,12 @@ extract_pantheon_uuid() {
         return 0
     else
         print_error "Invalid UUID format"
-        print_info "Expected format: 05dedbe8-0955-48d8-b586-6cb2dcbddc09"
+        print_info "Expected format: <uuid>"
         echo ""
         print_info "You can paste:"
-        print_info "  - Just the UUID: 05dedbe8-0955-48d8-b586-6cb2dcbddc09"
-        print_info "  - With fragment: 05dedbe8-0955-48d8-b586-6cb2dcbddc09#dev/code"
-        print_info "  - Full URL: https://dashboard.pantheon.io/sites/05dedbe8-0955-48d8-b586-6cb2dcbddc09"
+        print_info "  - Just the UUID: <uuid>"
+        print_info "  - With fragment: <uuid>#dev/code"
+        print_info "  - Full URL: https://dashboard.pantheon.io/sites/<uuid>"
         return 1
     fi
 }
@@ -559,9 +559,9 @@ if [ ! -f ".env" ]; then
         echo ""
         print_info "Pantheon Site UUID (Attempt $ATTEMPT/$MAX_ATTEMPTS)"
         print_info "You can paste the UUID in any of these formats:"
-        print_info "  - UUID only: 05dedbe8-0955-48d8-b586-6cb2dcbddc09"
-        print_info "  - With hash: 05dedbe8-0955-48d8-b586-6cb2dcbddc09#dev/code"
-        print_info "  - Full URL: https://dashboard.pantheon.io/sites/05dedbe8-..."
+        print_info "  - UUID only: <uuid>"
+        print_info "  - With hash: <uuid>#dev/code"
+        print_info "  - Full URL: https://dashboard.pantheon.io/sites/<uuid>"
         echo ""
         read -rp "Pantheon Site UUID: " UUID_INPUT
 

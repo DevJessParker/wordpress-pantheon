@@ -17,21 +17,21 @@ $ProgressPreference = "SilentlyContinue"
 # Helper function to extract UUID from various input formats
 function Extract-PantheonUUID {
     param(
-        [string]$Input
+        [string]$UserInput
     )
 
     # Remove whitespace
-    $Input = $Input.Trim()
+    $UserInput = $UserInput.Trim()
 
     # UUID regex pattern (8-4-4-4-12 format)
     $uuidPattern = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
 
     # Extract UUID from input
-    if ($Input -match $uuidPattern) {
+    if ($UserInput -match $uuidPattern) {
         $uuid = $matches[0]
 
         # Check if input contains environment references
-        if ($Input -match '#(test|live)' -or $Input -match '/(test|live)') {
+        if ($UserInput -match '#(test|live)' -or $UserInput -match '/(test|live)') {
             Write-ColorOutput "WARNING: This tool only works with DEV environment" -Type Warning
             Write-ColorOutput "Test and Live environments are not supported for local development" -Type Warning
             Write-ColorOutput "The UUID will be used with the dev environment only" -Type Info
@@ -40,12 +40,12 @@ function Extract-PantheonUUID {
         return $uuid.ToLower()
     } else {
         Write-ColorOutput "Invalid UUID format" -Type Error
-        Write-ColorOutput "Expected format: 05dedbe8-0955-48d8-b586-6cb2dcbddc09" -Type Info
+        Write-ColorOutput "Expected format: <uuid>" -Type Info
         Write-ColorOutput "" -Type Info
         Write-ColorOutput "You can paste:" -Type Info
-        Write-ColorOutput "  - Just the UUID: 05dedbe8-0955-48d8-b586-6cb2dcbddc09" -Type Info
-        Write-ColorOutput "  - With fragment: 05dedbe8-0955-48d8-b586-6cb2dcbddc09#dev/code" -Type Info
-        Write-ColorOutput "  - Full URL: https://dashboard.pantheon.io/sites/05dedbe8-0955-48d8-b586-6cb2dcbddc09" -Type Info
+        Write-ColorOutput "  - Just the UUID: <uuid>" -Type Info
+        Write-ColorOutput "  - With fragment: <uuid>#dev/code" -Type Info
+        Write-ColorOutput "  - Full URL: https://dashboard.pantheon.io/sites/<uuid>" -Type Info
         return $null
     }
 }
@@ -573,12 +573,12 @@ if (-not (Test-Path ".env")) {
         Write-Host ""
         Write-ColorOutput "Pantheon Site UUID (Attempt $attempt/$maxAttempts)" -Type Info
         Write-ColorOutput "You can paste the UUID in any of these formats:" -Type Info
-        Write-ColorOutput "  - UUID only: 05dedbe8-0955-48d8-b586-6cb2dcbddc09" -Type Info
-        Write-ColorOutput "  - With hash: 05dedbe8-0955-48d8-b586-6cb2dcbddc09#dev/code" -Type Info
-        Write-ColorOutput "  - Full URL: https://dashboard.pantheon.io/sites/05dedbe8-..." -Type Info
+        Write-ColorOutput "  - UUID only: <uuid>" -Type Info
+        Write-ColorOutput "  - With hash: <uuid>#dev/code" -Type Info
+        Write-ColorOutput "  - Full URL: https://dashboard.pantheon.io/sites/<uuid>" -Type Info
         Write-Host ""
         $uuidInput = Read-Host "Pantheon Site UUID"
-        $pantheonSiteId = Extract-PantheonUUID -Input $uuidInput
+        $pantheonSiteId = Extract-PantheonUUID -UserInput $uuidInput
 
         if ($null -eq $pantheonSiteId -and $attempt -lt $maxAttempts) {
             Write-Host ""

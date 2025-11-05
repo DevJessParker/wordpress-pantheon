@@ -24,7 +24,7 @@ foreach ($test in $testCases) {
     Write-Host "Test: $($test.Description)" -ForegroundColor Yellow
     Write-Host "  Input: $($test.Input)"
 
-    $result = Extract-PantheonUUID -Input $test.Input
+    $result = Extract-PantheonUUID -UserInput $test.Input
 
     if ($result -eq $test.Expected) {
         Write-Host "  Result: $result" -ForegroundColor Green
