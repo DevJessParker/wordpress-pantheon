@@ -595,7 +595,10 @@ if (-not (Test-Path ".env")) {
     Write-ColorOutput "This will connect to the DEV environment only" -Type Info
     Write-Host ""
 
-    $terminusTokenSecure = Read-Host "Terminus Machine Token (from Account -> Machine Tokens)" -AsSecureString
+    Write-ColorOutput "Terminus Machine Token" -Type Info
+    Write-ColorOutput "Find or create your token at: https://dashboard.pantheon.io/personal-settings/machine-tokens" -Type Info
+    Write-Host ""
+    $terminusTokenSecure = Read-Host "Terminus Machine Token" -AsSecureString
     $terminusToken = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($terminusTokenSecure))
 
     # Create .env file

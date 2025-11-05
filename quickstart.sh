@@ -587,7 +587,10 @@ if [ ! -f ".env" ]; then
     print_info "This will connect to the DEV environment only"
     echo ""
 
-    read -rsp "Terminus Machine Token (from Account -> Machine Tokens): " TERMINUS_TOKEN
+    print_info "Terminus Machine Token"
+    print_info "Find or create your token at: https://dashboard.pantheon.io/personal-settings/machine-tokens"
+    echo ""
+    read -rsp "Terminus Machine Token: " TERMINUS_TOKEN
     echo ""
 
     # Validate inputs
