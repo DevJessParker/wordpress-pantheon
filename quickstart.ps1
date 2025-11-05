@@ -666,32 +666,33 @@ $landoStarted = $false
 $maxAttempts = 3
 
 for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-    try {
-        if ($attempt -eq 1) {
-            Write-ColorOutput "Starting Lando (attempt $attempt/$maxAttempts)..." -Type Info
-            & lando start 2>&1 | Out-Host
-        } elseif ($attempt -eq 2) {
-            Write-ColorOutput "First attempt failed. Destroying and starting fresh (attempt $attempt/$maxAttempts)..." -Type Warning
-            & lando poweroff 2>&1 | Out-Null
-            Start-Sleep -Seconds 2
-            & lando destroy -y 2>&1 | Out-Null
-            Start-Sleep -Seconds 2
-            & lando start 2>&1 | Out-Host
-        } else {
-            Write-ColorOutput "Second attempt failed. Performing aggressive cleanup (attempt $attempt/$maxAttempts)..." -Type Warning
-            & lando poweroff 2>&1 | Out-Null
-            Start-Sleep -Seconds 2
-            & lando destroy -y 2>&1 | Out-Null
-            Start-Sleep -Seconds 3
-            Write-ColorOutput "Cleaning Docker system..." -Type Info
-            & docker system prune -f 2>&1 | Out-Null
-            Start-Sleep -Seconds 2
-            & lando start 2>&1 | Out-Host
-        }
-
-        # Verify containers are actually running by checking lando info
+    if ($attempt -eq 1) {
+        Write-ColorOutput "Starting Lando (attempt $attempt/$maxAttempts)..." -Type Info
+        & lando start 2>&1 | Out-Host
+    } elseif ($attempt -eq 2) {
+        Write-ColorOutput "First attempt failed. Destroying and starting fresh (attempt $attempt/$maxAttempts)..." -Type Warning
+        & lando poweroff 2>&1 | Out-Null
+        Start-Sleep -Seconds 2
+        & lando destroy -y 2>&1 | Out-Null
+        Start-Sleep -Seconds 2
+        & lando start 2>&1 | Out-Host
+    } else {
+        Write-ColorOutput "Second attempt failed. Performing aggressive cleanup (attempt $attempt/$maxAttempts)..." -Type Warning
+        & lando poweroff 2>&1 | Out-Null
+        Start-Sleep -Seconds 2
+        & lando destroy -y 2>&1 | Out-Null
         Start-Sleep -Seconds 3
-        Write-ColorOutput "Verifying containers are running..." -Type Info
+        Write-ColorOutput "Cleaning Docker system..." -Type Info
+        & docker system prune -f 2>&1 | Out-Null
+        Start-Sleep -Seconds 2
+        & lando start 2>&1 | Out-Host
+    }
+
+    # Always verify containers are actually running, regardless of exit codes or exceptions
+    Start-Sleep -Seconds 5
+    Write-ColorOutput "Verifying containers are running..." -Type Info
+
+    try {
         $landoInfo = & lando info --format json 2>&1 | Out-String
 
         if ($LASTEXITCODE -eq 0 -and $landoInfo -match '\[' -and $landoInfo -notmatch '"service":\s*\[\s*\]') {
@@ -700,14 +701,13 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
             break
         } else {
             if ($attempt -lt $maxAttempts) {
-                Write-ColorOutput "Attempt $attempt failed - containers not running properly" -Type Warning
+                Write-ColorOutput "Containers not running properly, will retry with more aggressive cleanup..." -Type Warning
                 Start-Sleep -Seconds 2
             }
         }
     } catch {
         if ($attempt -lt $maxAttempts) {
-            Write-ColorOutput "Attempt $attempt failed: $_" -Type Warning
-            Write-ColorOutput "Will perform more aggressive cleanup..." -Type Info
+            Write-ColorOutput "Verification failed, will retry with more aggressive cleanup..." -Type Warning
             Start-Sleep -Seconds 2
         }
     }

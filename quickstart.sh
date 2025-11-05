@@ -692,17 +692,19 @@ for attempt in $(seq 1 $MAX_ATTEMPTS); do
         lando start
     fi
 
-    # Verify containers are actually running by checking lando info
-    sleep 3
+    # Always verify containers are actually running, regardless of exit codes
+    sleep 5
     print_info "Verifying containers are running..."
-    if lando info --format json 2>/dev/null | grep -q '\[' && \
-       ! lando info --format json 2>/dev/null | grep -q '"service":\s*\[\s*\]'; then
+
+    LANDO_INFO=$(lando info --format json 2>/dev/null || echo "")
+
+    if echo "$LANDO_INFO" | grep -q '\[' && ! echo "$LANDO_INFO" | grep -q '"service":\s*\[\s*\]'; then
         print_success "Lando started successfully!"
         LANDO_STARTED=true
         break
     else
         if [ $attempt -lt $MAX_ATTEMPTS ]; then
-            print_warning "Attempt $attempt failed - containers not running properly"
+            print_warning "Containers not running properly, will retry with more aggressive cleanup..."
             sleep 2
         fi
     fi
