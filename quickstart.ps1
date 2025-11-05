@@ -724,6 +724,12 @@ Write-ColorOutput "Shutting down all Lando services for clean start..." -Type In
 & lando poweroff 2>&1 | Out-Null
 Start-Sleep -Seconds 3
 
+# Destroy existing wordpress-pantheon project for clean slate
+Write-ColorOutput "Destroying existing project containers for clean start..." -Type Info
+& lando destroy -y 2>&1 | Out-Null
+Start-Sleep -Seconds 2
+Write-ColorOutput "Project destroyed - starting fresh build..." -Type Success
+
 Write-ColorOutput "Starting Lando... (this may take several minutes on first run)" -Type Info
 
 $landoStarted = $false

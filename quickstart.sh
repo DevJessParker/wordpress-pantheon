@@ -728,6 +728,12 @@ print_info "Shutting down all Lando services for clean start..."
 lando poweroff >/dev/null 2>&1
 sleep 3
 
+# Destroy existing wordpress-pantheon project for clean slate
+print_info "Destroying existing project containers for clean start..."
+lando destroy -y >/dev/null 2>&1
+sleep 2
+print_success "Project destroyed - starting fresh build..."
+
 print_info "Starting Lando... (this may take several minutes on first run)"
 
 LANDO_STARTED=false
