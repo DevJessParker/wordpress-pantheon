@@ -848,7 +848,7 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
                         Write-ColorOutput "Container status:" -Type Info
                         foreach ($status in $serviceStatus) {
                             if ($status -match "UNHEALTHY") {
-                                Write-ColorOutput $status -Type Error
+                                Write-ColorOutput "$status (may be normal before WordPress is installed)" -Type Warning
                             } elseif ($status -match "healthy") {
                                 Write-ColorOutput $status -Type Success
                             } else {
@@ -858,8 +858,11 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
                         Write-ColorOutput "" -Type Info
                     }
 
+                    # Containers are healthy if they're RUNNING, even if health checks fail
+                    # Health checks may fail before WordPress files/DB are installed - this is expected
                     if ($serviceCount -gt 0 -and -not $hasErrors) {
                         $containersHealthy = $true
+                        Write-ColorOutput "Containers are running (health checks will pass after WordPress setup)" -Type Info
                     }
                 }
             } catch {
