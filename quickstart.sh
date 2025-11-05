@@ -47,6 +47,42 @@ print_header() {
     echo ""
 }
 
+# Function to extract UUID from various input formats
+extract_pantheon_uuid() {
+    local input="$1"
+
+    # Remove whitespace
+    input=$(echo "$input" | xargs)
+
+    # UUID regex pattern (8-4-4-4-12 format)
+    local uuid_pattern='[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
+
+    # Extract UUID from input
+    if [[ $input =~ $uuid_pattern ]]; then
+        local uuid="${BASH_REMATCH[0]}"
+
+        # Check if input contains environment references
+        if [[ $input =~ \#(test|live) ]] || [[ $input =~ /(test|live) ]]; then
+            print_warning "WARNING: This tool only works with DEV environment"
+            print_warning "Test and Live environments are not supported for local development"
+            print_info "The UUID will be used with the dev environment only"
+        fi
+
+        # Return UUID in lowercase
+        echo "${uuid,,}"
+        return 0
+    else
+        print_error "Invalid UUID format"
+        print_info "Expected format: 05dedbe8-0955-48d8-b586-6cb2dcbddc09"
+        echo ""
+        print_info "You can paste:"
+        print_info "  - Just the UUID: 05dedbe8-0955-48d8-b586-6cb2dcbddc09"
+        print_info "  - With fragment: 05dedbe8-0955-48d8-b586-6cb2dcbddc09#dev/code"
+        print_info "  - Full URL: https://dashboard.pantheon.io/sites/05dedbe8-0955-48d8-b586-6cb2dcbddc09"
+        return 1
+    fi
+}
+
 # Parse arguments
 SKIP_LANDO_INSTALL=false
 LANDO_INSTALL_PATH=""
@@ -512,7 +548,45 @@ if [ ! -f ".env" ]; then
     echo ""
 
     read -rp "Pantheon Site Name (e.g., my-awesome-site): " PANTHEON_SITE
-    read -rp "Pantheon Site UUID (from Settings -> About): " PANTHEON_SITE_ID
+
+    # Get and validate UUID with retry logic
+    PANTHEON_SITE_ID=""
+    MAX_ATTEMPTS=3
+    ATTEMPT=0
+
+    while [ -z "$PANTHEON_SITE_ID" ] && [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+        ATTEMPT=$((ATTEMPT + 1))
+        echo ""
+        print_info "Pantheon Site UUID (Attempt $ATTEMPT/$MAX_ATTEMPTS)"
+        print_info "You can paste the UUID in any of these formats:"
+        print_info "  - UUID only: 05dedbe8-0955-48d8-b586-6cb2dcbddc09"
+        print_info "  - With hash: 05dedbe8-0955-48d8-b586-6cb2dcbddc09#dev/code"
+        print_info "  - Full URL: https://dashboard.pantheon.io/sites/05dedbe8-..."
+        echo ""
+        read -rp "Pantheon Site UUID: " UUID_INPUT
+
+        if PANTHEON_SITE_ID=$(extract_pantheon_uuid "$UUID_INPUT"); then
+            # UUID extracted successfully
+            :
+        else
+            # Invalid UUID
+            PANTHEON_SITE_ID=""
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+                echo ""
+                print_warning "Please try again"
+            fi
+        fi
+    done
+
+    if [ -z "$PANTHEON_SITE_ID" ]; then
+        print_error "Failed to get valid UUID after $MAX_ATTEMPTS attempts"
+        exit 1
+    fi
+
+    print_success "Using UUID: $PANTHEON_SITE_ID"
+    print_info "This will connect to the DEV environment only"
+    echo ""
+
     read -rsp "Terminus Machine Token (from Account -> Machine Tokens): " TERMINUS_TOKEN
     echo ""
 

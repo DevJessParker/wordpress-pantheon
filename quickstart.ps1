@@ -14,6 +14,42 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
+# Helper function to extract UUID from various input formats
+function Extract-PantheonUUID {
+    param(
+        [string]$Input
+    )
+
+    # Remove whitespace
+    $Input = $Input.Trim()
+
+    # UUID regex pattern (8-4-4-4-12 format)
+    $uuidPattern = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
+
+    # Extract UUID from input
+    if ($Input -match $uuidPattern) {
+        $uuid = $matches[0]
+
+        # Check if input contains environment references
+        if ($Input -match '#(test|live)' -or $Input -match '/(test|live)') {
+            Write-ColorOutput "WARNING: This tool only works with DEV environment" -Type Warning
+            Write-ColorOutput "Test and Live environments are not supported for local development" -Type Warning
+            Write-ColorOutput "The UUID will be used with the dev environment only" -Type Info
+        }
+
+        return $uuid.ToLower()
+    } else {
+        Write-ColorOutput "Invalid UUID format" -Type Error
+        Write-ColorOutput "Expected format: 05dedbe8-0955-48d8-b586-6cb2dcbddc09" -Type Info
+        Write-ColorOutput "" -Type Info
+        Write-ColorOutput "You can paste:" -Type Info
+        Write-ColorOutput "  - Just the UUID: 05dedbe8-0955-48d8-b586-6cb2dcbddc09" -Type Info
+        Write-ColorOutput "  - With fragment: 05dedbe8-0955-48d8-b586-6cb2dcbddc09#dev/code" -Type Info
+        Write-ColorOutput "  - Full URL: https://dashboard.pantheon.io/sites/05dedbe8-0955-48d8-b586-6cb2dcbddc09" -Type Info
+        return $null
+    }
+}
+
 # Helper functions for colored output
 function Write-ColorOutput {
     param(
@@ -526,7 +562,39 @@ if (-not (Test-Path ".env")) {
     Write-Host ""
 
     $pantheonSite = Read-Host "Pantheon Site Name (e.g., my-awesome-site)"
-    $pantheonSiteId = Read-Host "Pantheon Site UUID (from Settings -> About)"
+
+    # Get and validate UUID with retry logic
+    $pantheonSiteId = $null
+    $maxAttempts = 3
+    $attempt = 0
+
+    while ($null -eq $pantheonSiteId -and $attempt -lt $maxAttempts) {
+        $attempt++
+        Write-Host ""
+        Write-ColorOutput "Pantheon Site UUID (Attempt $attempt/$maxAttempts)" -Type Info
+        Write-ColorOutput "You can paste the UUID in any of these formats:" -Type Info
+        Write-ColorOutput "  - UUID only: 05dedbe8-0955-48d8-b586-6cb2dcbddc09" -Type Info
+        Write-ColorOutput "  - With hash: 05dedbe8-0955-48d8-b586-6cb2dcbddc09#dev/code" -Type Info
+        Write-ColorOutput "  - Full URL: https://dashboard.pantheon.io/sites/05dedbe8-..." -Type Info
+        Write-Host ""
+        $uuidInput = Read-Host "Pantheon Site UUID"
+        $pantheonSiteId = Extract-PantheonUUID -Input $uuidInput
+
+        if ($null -eq $pantheonSiteId -and $attempt -lt $maxAttempts) {
+            Write-Host ""
+            Write-ColorOutput "Please try again" -Type Warning
+        }
+    }
+
+    if ($null -eq $pantheonSiteId) {
+        Write-ColorOutput "Failed to get valid UUID after $maxAttempts attempts" -Type Error
+        exit 1
+    }
+
+    Write-ColorOutput "Using UUID: $pantheonSiteId" -Type Success
+    Write-ColorOutput "This will connect to the DEV environment only" -Type Info
+    Write-Host ""
+
     $terminusTokenSecure = Read-Host "Terminus Machine Token (from Account -> Machine Tokens)" -AsSecureString
     $terminusToken = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($terminusTokenSecure))
 
