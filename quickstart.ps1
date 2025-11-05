@@ -346,27 +346,74 @@ if (-not $SkipLandoInstall) {
                         # Add to PATH for current session if not already there
                         if ($env:Path -notlike "*$installDir*") {
                             Write-ColorOutput "Adding $installDir to PATH for current session..." -Type Info
-                            $env:Path += ";$installDir"
+                            $env:Path = "$installDir;$env:Path"  # Add to beginning for priority
                         }
 
-                        # Verify Lando is now available
-                        try {
-                            $landoVersion = & lando version 2>&1
-                            if ($LASTEXITCODE -eq 0) {
-                                Write-ColorOutput "Lando verified successfully: $landoVersion" -Type Success
-                                Write-ColorOutput "Installation directory: $installDir" -Type Info
-                                Write-ColorOutput "Continuing with setup..." -Type Info
-                                Write-Host ""
-                                # Don't exit - continue with the rest of the script
-                            } else {
-                                throw "Lando command failed with exit code: $LASTEXITCODE"
+                        # Refresh environment variables more thoroughly
+                        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+                        if ($env:Path -notlike "*$installDir*") {
+                            $env:Path = "$installDir;$env:Path"
+                        }
+
+                        # Wait for file system to settle
+                        Start-Sleep -Seconds 5
+
+                        # Try multiple verification attempts
+                        $verifySuccess = $false
+                        $maxAttempts = 3
+
+                        for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+                            try {
+                                Write-ColorOutput "Verifying Lando installation (attempt $attempt/$maxAttempts)..." -Type Info
+
+                                # Try running lando directly from the installation path
+                                $landoExePath = Join-Path $installDir "lando.exe"
+                                $landoVersion = & $landoExePath version 2>&1
+
+                                if ($LASTEXITCODE -eq 0 -and $landoVersion) {
+                                    Write-ColorOutput "Lando verified successfully: $landoVersion" -Type Success
+                                    Write-ColorOutput "Installation directory: $installDir" -Type Info
+                                    $verifySuccess = $true
+                                    break
+                                } else {
+                                    throw "Lando returned exit code: $LASTEXITCODE"
+                                }
+                            } catch {
+                                if ($attempt -lt $maxAttempts) {
+                                    Write-ColorOutput "Verification attempt $attempt failed, retrying..." -Type Warning
+                                    Start-Sleep -Seconds 3
+                                } else {
+                                    Write-ColorOutput "Could not verify Lando automatically after $maxAttempts attempts" -Type Warning
+                                    Write-ColorOutput "Error: $_" -Type Info
+                                }
                             }
-                        } catch {
-                            Write-ColorOutput "Lando installed but verification failed: $_" -Type Warning
-                            Write-ColorOutput "You may need to restart PowerShell for PATH changes to take effect" -Type Info
-                            Write-ColorOutput "After restarting, verify with: lando version" -Type Info
-                            Write-ColorOutput "Then continue with: .\quickstart.ps1 -SkipLandoInstall" -Type Info
-                            exit 0
+                        }
+
+                        if ($verifySuccess) {
+                            Write-ColorOutput "Continuing with setup..." -Type Info
+                            Write-Host ""
+                            # Don't exit - continue with the rest of the script
+                        } else {
+                            Write-ColorOutput "Lando is installed but automatic verification failed" -Type Warning
+                            Write-ColorOutput "" -Type Info
+                            Write-ColorOutput "This is usually due to PATH refresh timing. Try one of these:" -Type Info
+                            Write-ColorOutput "" -Type Info
+                            Write-ColorOutput "Option 1: Continue anyway (if you know Lando works)" -Type Info
+                            $continue = Read-Host "  Press 'y' to continue setup, or any other key to exit"
+
+                            if ($continue -eq "y" -or $continue -eq "Y") {
+                                Write-ColorOutput "Continuing with setup..." -Type Success
+                                Write-Host ""
+                                # Continue with script
+                            } else {
+                                Write-ColorOutput "" -Type Info
+                                Write-ColorOutput "Option 2: Manual verification steps:" -Type Info
+                                Write-ColorOutput "  1. Close this PowerShell window" -Type Info
+                                Write-ColorOutput "  2. Open a new PowerShell window" -Type Info
+                                Write-ColorOutput "  3. Run: lando version" -Type Info
+                                Write-ColorOutput "  4. If that works, run: .\quickstart.ps1 -SkipLandoInstall" -Type Info
+                                exit 0
+                            }
                         }
                     } else {
                         Write-ColorOutput "Installation completed but lando.exe not found at expected location" -Type Warning
