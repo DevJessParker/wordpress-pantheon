@@ -364,6 +364,12 @@ if (-not $SkipLandoInstall) {
                             $env:Path = "$installDir;$env:Path"
                         }
 
+                        # Mark this session as having refreshed PATH
+                        $env:QUICKSTART_PATH_REFRESHED = "true"
+
+                        Write-ColorOutput "PATH updated for THIS PowerShell session" -Type Success
+                        Write-ColorOutput "Note: Other open PowerShell windows won't see Lando until reopened" -Type Info
+
                         # Wait for file system to settle
                         Start-Sleep -Seconds 5
 
@@ -676,5 +682,30 @@ Your WordPress + Pantheon local development environment is ready!
    QUICK-REFERENCE.md    - Command reference
 
 "@
+
+# Check if this is a fresh Lando installation and provide window guidance
+if ($env:QUICKSTART_PATH_REFRESHED -eq "true") {
+    Write-Host ""
+    Write-ColorOutput "IMPORTANT: PowerShell Window Sessions" -Type Header
+    Write-Host @"
+
+[OK] THIS PowerShell window has refreshed PATH - Lando commands will work here
+[INFO] Other PowerShell windows opened BEFORE installation will NOT have Lando in PATH
+[INFO] To use Lando in a different window, you must open a NEW PowerShell window
+
+To test in any window, run:
+   lando --version
+
+If you get "command not found" in another window:
+   1. Close that PowerShell window
+   2. Open a NEW PowerShell window
+   3. Run: lando --version (should work now)
+
+QUICK FIX for old windows (run in any window to refresh PATH):
+   `$env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
+   lando --version
+
+"@
+}
 
 Write-ColorOutput "Setup completed successfully!" -Type Success
