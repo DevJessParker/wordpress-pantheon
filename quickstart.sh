@@ -653,25 +653,21 @@ fi
 
 print_header "Step 4: Starting Lando Environment"
 
-# Check if Lando is already running and stop it for clean state
-print_info "Checking for running containers..."
-if lando info --format json 2>/dev/null | grep -q '\['; then
-    print_info "Lando is already running, stopping for clean restart..."
-    lando stop >/dev/null 2>&1
-    sleep 2
-    print_success "Previous containers stopped"
-fi
-
 # Clean up any partial Composer installations before starting
 if [ -d "vendor" ] && [ ! -f "vendor/autoload.php" ]; then
     print_info "Cleaning up partial Composer installation..."
     rm -rf vendor/
 fi
 
+# Stop all Lando services (including global proxy) for clean state
+print_info "Shutting down all Lando services for clean start..."
+lando poweroff >/dev/null 2>&1
+sleep 3
+
 print_info "Starting Lando... (this may take several minutes on first run)"
 
 LANDO_STARTED=false
-MAX_ATTEMPTS=2
+MAX_ATTEMPTS=3
 
 for attempt in $(seq 1 $MAX_ATTEMPTS); do
     if [ $attempt -eq 1 ]; then
@@ -682,13 +678,34 @@ for attempt in $(seq 1 $MAX_ATTEMPTS); do
             break
         else
             if [ $attempt -lt $MAX_ATTEMPTS ]; then
-                print_warning "Attempt $attempt failed, will destroy and retry..."
+                print_warning "Attempt $attempt failed, will perform more aggressive cleanup..."
+                sleep 2
+            fi
+        fi
+    elif [ $attempt -eq 2 ]; then
+        print_warning "First attempt failed. Destroying and starting fresh (attempt $attempt/$MAX_ATTEMPTS)..."
+        lando poweroff >/dev/null 2>&1
+        sleep 2
+        lando destroy -y >/dev/null 2>&1
+        sleep 2
+        if lando start; then
+            print_success "Lando started successfully!"
+            LANDO_STARTED=true
+            break
+        else
+            if [ $attempt -lt $MAX_ATTEMPTS ]; then
+                print_warning "Attempt $attempt failed, will perform more aggressive cleanup..."
                 sleep 2
             fi
         fi
     else
-        print_warning "First attempt failed. Destroying and starting fresh (attempt $attempt/$MAX_ATTEMPTS)..."
+        print_warning "Second attempt failed. Performing aggressive cleanup (attempt $attempt/$MAX_ATTEMPTS)..."
+        lando poweroff >/dev/null 2>&1
+        sleep 2
         lando destroy -y >/dev/null 2>&1
+        sleep 3
+        print_info "Cleaning Docker system..."
+        docker system prune -f >/dev/null 2>&1
         sleep 2
         if lando start; then
             print_success "Lando started successfully!"
@@ -702,10 +719,14 @@ if [ "$LANDO_STARTED" = false ]; then
     print_error "Failed to start Lando after $MAX_ATTEMPTS attempts"
     echo ""
     print_info "Troubleshooting steps:"
-    print_info "  1. Make sure Docker Desktop is running"
-    print_info "  2. Try manually: lando destroy && lando start"
-    print_info "  3. Check logs: lando logs"
-    print_info "  4. Update Lando: Visit https://docs.lando.dev/getting-started/installation.html"
+    print_info "  1. Check Docker Desktop is running and healthy"
+    print_info "  2. Restart Docker Desktop completely"
+    print_info "  3. Try manually: lando poweroff && lando destroy -y && lando start"
+    print_info "  4. Check for port conflicts (80, 443, 3306 in use)"
+    print_info "  5. Check Lando logs: lando logs"
+    print_info "  6. Update Lando: Visit https://docs.lando.dev/getting-started/installation.html"
+    echo ""
+    print_info "If issues persist, check Docker Desktop logs for errors"
     exit 1
 fi
 

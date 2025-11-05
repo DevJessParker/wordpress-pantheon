@@ -649,39 +649,42 @@ if (Test-Path ".env") {
 
 Write-ColorOutput "Step 4: Starting Lando Environment" -Type Header
 
-# Check if Lando is already running and stop it for clean state
-Write-ColorOutput "Checking for running containers..." -Type Info
-try {
-    $landoInfo = & lando info --format json 2>&1 | Out-String
-    if ($LASTEXITCODE -eq 0 -and $landoInfo -match '\[') {
-        Write-ColorOutput "Lando is already running, stopping for clean restart..." -Type Info
-        & lando stop 2>&1 | Out-Null
-        Start-Sleep -Seconds 2
-        Write-ColorOutput "Previous containers stopped" -Type Success
-    }
-} catch {
-    # No containers running, continue
-}
-
 # Clean up any partial Composer installations before starting
 if ((Test-Path "vendor") -and (-not (Test-Path "vendor/autoload.php"))) {
     Write-ColorOutput "Cleaning up partial Composer installation..." -Type Info
     Remove-Item -Recurse -Force vendor -ErrorAction SilentlyContinue
 }
 
+# Stop all Lando services (including global proxy) for clean state
+Write-ColorOutput "Shutting down all Lando services for clean start..." -Type Info
+& lando poweroff 2>&1 | Out-Null
+Start-Sleep -Seconds 3
+
 Write-ColorOutput "Starting Lando... (this may take several minutes on first run)" -Type Info
 
 $landoStarted = $false
-$maxAttempts = 2
+$maxAttempts = 3
 
 for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     try {
         if ($attempt -eq 1) {
             Write-ColorOutput "Starting Lando (attempt $attempt/$maxAttempts)..." -Type Info
             & lando start 2>&1 | Out-Host
-        } else {
+        } elseif ($attempt -eq 2) {
             Write-ColorOutput "First attempt failed. Destroying and starting fresh (attempt $attempt/$maxAttempts)..." -Type Warning
+            & lando poweroff 2>&1 | Out-Null
+            Start-Sleep -Seconds 2
             & lando destroy -y 2>&1 | Out-Null
+            Start-Sleep -Seconds 2
+            & lando start 2>&1 | Out-Host
+        } else {
+            Write-ColorOutput "Second attempt failed. Performing aggressive cleanup (attempt $attempt/$maxAttempts)..." -Type Warning
+            & lando poweroff 2>&1 | Out-Null
+            Start-Sleep -Seconds 2
+            & lando destroy -y 2>&1 | Out-Null
+            Start-Sleep -Seconds 3
+            Write-ColorOutput "Cleaning Docker system..." -Type Info
+            & docker system prune -f 2>&1 | Out-Null
             Start-Sleep -Seconds 2
             & lando start 2>&1 | Out-Host
         }
@@ -692,14 +695,14 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
             break
         } else {
             if ($attempt -lt $maxAttempts) {
-                Write-ColorOutput "Attempt $attempt failed, will destroy and retry..." -Type Warning
+                Write-ColorOutput "Attempt $attempt failed, will perform more aggressive cleanup..." -Type Warning
                 Start-Sleep -Seconds 2
             }
         }
     } catch {
         if ($attempt -lt $maxAttempts) {
             Write-ColorOutput "Attempt $attempt failed: $_" -Type Warning
-            Write-ColorOutput "Will destroy and retry..." -Type Info
+            Write-ColorOutput "Will perform more aggressive cleanup..." -Type Info
             Start-Sleep -Seconds 2
         }
     }
@@ -709,10 +712,14 @@ if (-not $landoStarted) {
     Write-ColorOutput "Failed to start Lando after $maxAttempts attempts" -Type Error
     Write-ColorOutput "" -Type Info
     Write-ColorOutput "Troubleshooting steps:" -Type Info
-    Write-ColorOutput "  1. Make sure Docker Desktop is running" -Type Info
-    Write-ColorOutput "  2. Try manually: lando destroy && lando start" -Type Info
-    Write-ColorOutput "  3. Check logs: lando logs" -Type Info
-    Write-ColorOutput "  4. Update Lando: Visit https://docs.lando.dev/getting-started/installation.html" -Type Info
+    Write-ColorOutput "  1. Check Docker Desktop is running and healthy" -Type Info
+    Write-ColorOutput "  2. Restart Docker Desktop completely" -Type Info
+    Write-ColorOutput "  3. Try manually: lando poweroff && lando destroy -y && lando start" -Type Info
+    Write-ColorOutput "  4. Check for port conflicts (80, 443, 3306 in use)" -Type Info
+    Write-ColorOutput "  5. Check Lando logs: lando logs" -Type Info
+    Write-ColorOutput "  6. Update Lando: Visit https://docs.lando.dev/getting-started/installation.html" -Type Info
+    Write-ColorOutput "" -Type Info
+    Write-ColorOutput "If issues persist, check Docker Desktop logs for errors" -Type Info
     exit 1
 }
 
