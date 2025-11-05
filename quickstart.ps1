@@ -680,8 +680,10 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
             Write-ColorOutput "Starting Lando (attempt $attempt/$maxAttempts)..." -Type Info
             & lando start 2>&1 | Out-Host
         } else {
-            Write-ColorOutput "Rebuilding Lando (attempt $attempt/$maxAttempts)..." -Type Info
-            & lando rebuild -y 2>&1 | Out-Host
+            Write-ColorOutput "First attempt failed. Destroying and starting fresh (attempt $attempt/$maxAttempts)..." -Type Warning
+            & lando destroy -y 2>&1 | Out-Null
+            Start-Sleep -Seconds 2
+            & lando start 2>&1 | Out-Host
         }
 
         if ($LASTEXITCODE -eq 0) {
@@ -690,15 +692,15 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
             break
         } else {
             if ($attempt -lt $maxAttempts) {
-                Write-ColorOutput "First attempt failed, will try rebuilding..." -Type Warning
-                Start-Sleep -Seconds 3
+                Write-ColorOutput "Attempt $attempt failed, will destroy and retry..." -Type Warning
+                Start-Sleep -Seconds 2
             }
         }
     } catch {
         if ($attempt -lt $maxAttempts) {
             Write-ColorOutput "Attempt $attempt failed: $_" -Type Warning
-            Write-ColorOutput "Will try rebuilding..." -Type Info
-            Start-Sleep -Seconds 3
+            Write-ColorOutput "Will destroy and retry..." -Type Info
+            Start-Sleep -Seconds 2
         }
     }
 }

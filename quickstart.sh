@@ -682,14 +682,16 @@ for attempt in $(seq 1 $MAX_ATTEMPTS); do
             break
         else
             if [ $attempt -lt $MAX_ATTEMPTS ]; then
-                print_warning "First attempt failed, will try rebuilding..."
-                sleep 3
+                print_warning "Attempt $attempt failed, will destroy and retry..."
+                sleep 2
             fi
         fi
     else
-        print_info "Rebuilding Lando (attempt $attempt/$MAX_ATTEMPTS)..."
-        if lando rebuild -y; then
-            print_success "Lando rebuilt successfully!"
+        print_warning "First attempt failed. Destroying and starting fresh (attempt $attempt/$MAX_ATTEMPTS)..."
+        lando destroy -y >/dev/null 2>&1
+        sleep 2
+        if lando start; then
+            print_success "Lando started successfully!"
             LANDO_STARTED=true
             break
         fi
