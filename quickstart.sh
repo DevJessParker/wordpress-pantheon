@@ -198,41 +198,77 @@ if [ "$SKIP_LANDO_INSTALL" = false ]; then
                 LANDO_URL="https://github.com/lando/lando/releases/download/v${LANDO_VERSION}/lando-x64-v${LANDO_VERSION}.dmg"
                 INSTALLER_PATH="/tmp/lando.dmg"
 
-                curl -fsSL -o "$INSTALLER_PATH" "$LANDO_URL" || {
-                    print_error "Failed to download Lando installer"
-                    print_info "Please install manually from: https://docs.lando.dev/getting-started/installation.html"
-                    exit 1
-                }
+                # Download with retry logic
+                MAX_RETRIES=3
+                RETRY_COUNT=0
+                DOWNLOAD_SUCCESS=false
 
-                print_info "Mounting installer..."
-                hdiutil attach "$INSTALLER_PATH" -nobrowse -quiet
+                while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$DOWNLOAD_SUCCESS" = false ]; do
+                    RETRY_COUNT=$((RETRY_COUNT + 1))
 
-                print_info "Installing Lando (requires sudo)..."
-                sudo cp -R /Volumes/Lando/Lando.app /Applications/ || {
-                    print_error "Failed to install Lando"
-                    hdiutil detach /Volumes/Lando -quiet 2>/dev/null || true
-                    rm -f "$INSTALLER_PATH"
-                    exit 1
-                }
+                    if [ $RETRY_COUNT -gt 1 ]; then
+                        WAIT_TIME=$((2 ** (RETRY_COUNT - 1)))
+                        print_info "Retry attempt $RETRY_COUNT of $MAX_RETRIES (waiting ${WAIT_TIME}s)..."
+                        sleep $WAIT_TIME
+                    fi
 
-                print_info "Cleaning up..."
-                hdiutil detach /Volumes/Lando -quiet || true
-                rm -f "$INSTALLER_PATH"
+                    print_info "Downloading Lando installer... (attempt $RETRY_COUNT/$MAX_RETRIES)"
 
-                # Add to PATH for current session
-                export PATH="/Applications/Lando.app/Contents/Resources:$PATH"
-
-                # Add to shell profile
-                for PROFILE in "$HOME/.bash_profile" "$HOME/.zshrc" "$HOME/.bashrc"; do
-                    if [ -f "$PROFILE" ]; then
-                        if ! grep -q "Lando.app/Contents/Resources" "$PROFILE" 2>/dev/null; then
-                            echo 'export PATH="/Applications/Lando.app/Contents/Resources:$PATH"' >> "$PROFILE"
+                    if curl -fsSL --connect-timeout 30 --max-time 300 -o "$INSTALLER_PATH" "$LANDO_URL"; then
+                        # Verify download
+                        if [ -f "$INSTALLER_PATH" ]; then
+                            FILE_SIZE=$(stat -f%z "$INSTALLER_PATH" 2>/dev/null || stat -c%s "$INSTALLER_PATH" 2>/dev/null || echo 0)
+                            if [ "$FILE_SIZE" -gt 1048576 ]; then
+                                print_success "Lando installer downloaded successfully ($((FILE_SIZE / 1048576)) MB)"
+                                DOWNLOAD_SUCCESS=true
+                            else
+                                print_warning "Downloaded file seems incomplete (size: $FILE_SIZE bytes)"
+                                rm -f "$INSTALLER_PATH"
+                            fi
                         fi
+                    else
+                        print_warning "Download attempt $RETRY_COUNT failed"
+                    fi
+
+                    if [ $RETRY_COUNT -eq $MAX_RETRIES ] && [ "$DOWNLOAD_SUCCESS" = false ]; then
+                        print_error "All download attempts failed"
+                        print_info "You can manually download from: $LANDO_URL"
+                        print_info "Then install and re-run this script with: ./quickstart.sh --skip-lando-install"
+                        exit 1
                     fi
                 done
 
-                print_success "Lando installed successfully"
-                print_warning "You may need to restart your terminal for PATH changes to take effect"
+                if [ "$DOWNLOAD_SUCCESS" = true ]; then
+                    print_info "Mounting installer..."
+                    hdiutil attach "$INSTALLER_PATH" -nobrowse -quiet
+
+                    print_info "Installing Lando (requires sudo)..."
+                    sudo cp -R /Volumes/Lando/Lando.app /Applications/ || {
+                        print_error "Failed to install Lando"
+                        hdiutil detach /Volumes/Lando -quiet 2>/dev/null || true
+                        rm -f "$INSTALLER_PATH"
+                        exit 1
+                    }
+
+                    print_info "Cleaning up..."
+                    hdiutil detach /Volumes/Lando -quiet || true
+                    rm -f "$INSTALLER_PATH"
+
+                    # Add to PATH for current session
+                    export PATH="/Applications/Lando.app/Contents/Resources:$PATH"
+
+                    # Add to shell profile
+                    for PROFILE in "$HOME/.bash_profile" "$HOME/.zshrc" "$HOME/.bashrc"; do
+                        if [ -f "$PROFILE" ]; then
+                            if ! grep -q "Lando.app/Contents/Resources" "$PROFILE" 2>/dev/null; then
+                                echo 'export PATH="/Applications/Lando.app/Contents/Resources:$PATH"' >> "$PROFILE"
+                            fi
+                        fi
+                    done
+
+                    print_success "Lando installed successfully"
+                    print_warning "You may need to restart your terminal for PATH changes to take effect"
+                fi
             fi
         else
             # Linux installation
@@ -243,42 +279,112 @@ if [ "$SKIP_LANDO_INSTALL" = false ]; then
                 LANDO_URL="https://github.com/lando/lando/releases/download/v${LANDO_VERSION}/lando-x64-v${LANDO_VERSION}.deb"
                 INSTALLER_PATH="/tmp/lando.deb"
 
-                curl -fsSL -o "$INSTALLER_PATH" "$LANDO_URL" || {
-                    print_error "Failed to download Lando installer"
-                    print_info "Please install manually from: https://docs.lando.dev/getting-started/installation.html"
-                    exit 1
-                }
+                # Download with retry logic
+                MAX_RETRIES=3
+                RETRY_COUNT=0
+                DOWNLOAD_SUCCESS=false
 
-                print_info "Installing Lando (requires sudo)..."
-                sudo dpkg -i "$INSTALLER_PATH" || {
-                    print_error "Failed to install Lando"
+                while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$DOWNLOAD_SUCCESS" = false ]; do
+                    RETRY_COUNT=$((RETRY_COUNT + 1))
+
+                    if [ $RETRY_COUNT -gt 1 ]; then
+                        WAIT_TIME=$((2 ** (RETRY_COUNT - 1)))
+                        print_info "Retry attempt $RETRY_COUNT of $MAX_RETRIES (waiting ${WAIT_TIME}s)..."
+                        sleep $WAIT_TIME
+                    fi
+
+                    print_info "Downloading Lando installer... (attempt $RETRY_COUNT/$MAX_RETRIES)"
+
+                    if curl -fsSL --connect-timeout 30 --max-time 300 -o "$INSTALLER_PATH" "$LANDO_URL"; then
+                        if [ -f "$INSTALLER_PATH" ]; then
+                            FILE_SIZE=$(stat -c%s "$INSTALLER_PATH" 2>/dev/null || echo 0)
+                            if [ "$FILE_SIZE" -gt 1048576 ]; then
+                                print_success "Lando installer downloaded successfully ($((FILE_SIZE / 1048576)) MB)"
+                                DOWNLOAD_SUCCESS=true
+                            else
+                                print_warning "Downloaded file seems incomplete (size: $FILE_SIZE bytes)"
+                                rm -f "$INSTALLER_PATH"
+                            fi
+                        fi
+                    else
+                        print_warning "Download attempt $RETRY_COUNT failed"
+                    fi
+
+                    if [ $RETRY_COUNT -eq $MAX_RETRIES ] && [ "$DOWNLOAD_SUCCESS" = false ]; then
+                        print_error "All download attempts failed"
+                        print_info "You can manually download from: $LANDO_URL"
+                        print_info "Then install and re-run this script with: ./quickstart.sh --skip-lando-install"
+                        exit 1
+                    fi
+                done
+
+                if [ "$DOWNLOAD_SUCCESS" = true ]; then
+                    print_info "Installing Lando (requires sudo)..."
+                    sudo dpkg -i "$INSTALLER_PATH" || {
+                        print_error "Failed to install Lando"
+                        rm -f "$INSTALLER_PATH"
+                        exit 1
+                    }
+
                     rm -f "$INSTALLER_PATH"
-                    exit 1
-                }
-
-                rm -f "$INSTALLER_PATH"
-                print_success "Lando installed successfully"
+                    print_success "Lando installed successfully"
+                fi
 
             elif command -v rpm &> /dev/null; then
                 # Red Hat/CentOS/Fedora
                 LANDO_URL="https://github.com/lando/lando/releases/download/v${LANDO_VERSION}/lando-x64-v${LANDO_VERSION}.rpm"
                 INSTALLER_PATH="/tmp/lando.rpm"
 
-                curl -fsSL -o "$INSTALLER_PATH" "$LANDO_URL" || {
-                    print_error "Failed to download Lando installer"
-                    print_info "Please install manually from: https://docs.lando.dev/getting-started/installation.html"
-                    exit 1
-                }
+                # Download with retry logic
+                MAX_RETRIES=3
+                RETRY_COUNT=0
+                DOWNLOAD_SUCCESS=false
 
-                print_info "Installing Lando (requires sudo)..."
-                sudo rpm -i "$INSTALLER_PATH" || {
-                    print_error "Failed to install Lando"
+                while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$DOWNLOAD_SUCCESS" = false ]; do
+                    RETRY_COUNT=$((RETRY_COUNT + 1))
+
+                    if [ $RETRY_COUNT -gt 1 ]; then
+                        WAIT_TIME=$((2 ** (RETRY_COUNT - 1)))
+                        print_info "Retry attempt $RETRY_COUNT of $MAX_RETRIES (waiting ${WAIT_TIME}s)..."
+                        sleep $WAIT_TIME
+                    fi
+
+                    print_info "Downloading Lando installer... (attempt $RETRY_COUNT/$MAX_RETRIES)"
+
+                    if curl -fsSL --connect-timeout 30 --max-time 300 -o "$INSTALLER_PATH" "$LANDO_URL"; then
+                        if [ -f "$INSTALLER_PATH" ]; then
+                            FILE_SIZE=$(stat -c%s "$INSTALLER_PATH" 2>/dev/null || echo 0)
+                            if [ "$FILE_SIZE" -gt 1048576 ]; then
+                                print_success "Lando installer downloaded successfully ($((FILE_SIZE / 1048576)) MB)"
+                                DOWNLOAD_SUCCESS=true
+                            else
+                                print_warning "Downloaded file seems incomplete (size: $FILE_SIZE bytes)"
+                                rm -f "$INSTALLER_PATH"
+                            fi
+                        fi
+                    else
+                        print_warning "Download attempt $RETRY_COUNT failed"
+                    fi
+
+                    if [ $RETRY_COUNT -eq $MAX_RETRIES ] && [ "$DOWNLOAD_SUCCESS" = false ]; then
+                        print_error "All download attempts failed"
+                        print_info "You can manually download from: $LANDO_URL"
+                        print_info "Then install and re-run this script with: ./quickstart.sh --skip-lando-install"
+                        exit 1
+                    fi
+                done
+
+                if [ "$DOWNLOAD_SUCCESS" = true ]; then
+                    print_info "Installing Lando (requires sudo)..."
+                    sudo rpm -i "$INSTALLER_PATH" || {
+                        print_error "Failed to install Lando"
+                        rm -f "$INSTALLER_PATH"
+                        exit 1
+                    }
+
                     rm -f "$INSTALLER_PATH"
-                    exit 1
-                }
-
-                rm -f "$INSTALLER_PATH"
-                print_success "Lando installed successfully"
+                    print_success "Lando installed successfully"
+                fi
             else
                 print_error "Unsupported Linux distribution for automatic installation"
                 print_info "Please install manually from: https://docs.lando.dev/getting-started/installation.html"

@@ -157,42 +157,92 @@ if (-not $SkipLandoInstall) {
         }
     } catch {
         Write-ColorOutput "Lando is not installed" -Type Warning
-        Write-ColorOutput "Downloading Lando installer..." -Type Info
 
         # Use latest stable version
         $landoVersion = "3.21.0"
         $landoUrl = "https://github.com/lando/lando/releases/download/v$landoVersion/lando-x64-v$landoVersion.exe"
         $installerPath = Join-Path $env:TEMP "lando-installer.exe"
 
-        try {
-            # Download with progress
-            $webClient = New-Object System.Net.WebClient
-            $webClient.DownloadFile($landoUrl, $installerPath)
-            Write-ColorOutput "Lando installer downloaded" -Type Success
+        # Download with retry logic
+        $maxRetries = 3
+        $retryCount = 0
+        $downloadSuccess = $false
 
-            Write-ColorOutput "Installing Lando... (this may take a few minutes)" -Type Info
-            Write-ColorOutput "Please follow the installer prompts" -Type Warning
+        while ($retryCount -lt $maxRetries -and -not $downloadSuccess) {
+            try {
+                $retryCount++
+                if ($retryCount -gt 1) {
+                    $waitTime = [Math]::Pow(2, $retryCount - 1)
+                    Write-ColorOutput "Retry attempt $retryCount of $maxRetries (waiting ${waitTime}s)..." -Type Info
+                    Start-Sleep -Seconds $waitTime
+                }
 
-            # Run installer
-            Start-Process -FilePath $installerPath -Wait -NoNewWindow
+                Write-ColorOutput "Downloading Lando installer... (attempt $retryCount/$maxRetries)" -Type Info
 
-            Write-ColorOutput "Lando installation complete" -Type Success
-            Write-ColorOutput "Please restart PowerShell for Lando to be available in PATH" -Type Warning
-            Write-ColorOutput "After restarting, run this script again to continue setup" -Type Info
+                # Use Invoke-WebRequest with timeout
+                $webRequest = Invoke-WebRequest -Uri $landoUrl -OutFile $installerPath -TimeoutSec 300 -UseBasicParsing -ErrorAction Stop
 
-            # Clean up
-            if (Test-Path $installerPath) {
-                Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
+                # Verify file was downloaded
+                if (Test-Path $installerPath) {
+                    $fileSize = (Get-Item $installerPath).Length
+                    if ($fileSize -gt 1MB) {
+                        Write-ColorOutput "Lando installer downloaded successfully ($([Math]::Round($fileSize/1MB, 2)) MB)" -Type Success
+                        $downloadSuccess = $true
+                    } else {
+                        Write-ColorOutput "Downloaded file seems incomplete (size: $fileSize bytes)" -Type Warning
+                        Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
+                        throw "Incomplete download"
+                    }
+                } else {
+                    throw "Download failed - file not found"
+                }
+
+            } catch {
+                Write-ColorOutput "Download attempt $retryCount failed: $($_.Exception.Message)" -Type Warning
+                if ($retryCount -eq $maxRetries) {
+                    Write-ColorOutput "All download attempts failed" -Type Error
+                    Write-ColorOutput "You can manually download from: $landoUrl" -Type Info
+                    Write-ColorOutput "Then run the installer and re-run this script with: .\quickstart.ps1 -SkipLandoInstall" -Type Info
+                    if (Test-Path $installerPath) {
+                        Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
+                    }
+                    exit 1
+                }
             }
-            exit 0
+        }
 
-        } catch {
-            Write-ColorOutput "Failed to download or install Lando: $_" -Type Error
-            Write-ColorOutput "Please manually install from: https://docs.lando.dev/getting-started/installation.html" -Type Info
-            if (Test-Path $installerPath) {
-                Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
+        # Install Lando
+        if ($downloadSuccess) {
+            try {
+                Write-ColorOutput "Installing Lando... (this may take a few minutes)" -Type Info
+                Write-ColorOutput "Please follow the installer prompts" -Type Warning
+
+                # Run installer
+                $process = Start-Process -FilePath $installerPath -Wait -PassThru -NoNewWindow
+
+                if ($process.ExitCode -eq 0) {
+                    Write-ColorOutput "Lando installation complete" -Type Success
+                    Write-ColorOutput "Please restart PowerShell for Lando to be available in PATH" -Type Warning
+                    Write-ColorOutput "After restarting, run: .\quickstart.ps1 -SkipLandoInstall" -Type Info
+                } else {
+                    Write-ColorOutput "Installer exited with code: $($process.ExitCode)" -Type Warning
+                    Write-ColorOutput "Lando may have been installed. Try restarting PowerShell and running: lando version" -Type Info
+                }
+
+                # Clean up
+                if (Test-Path $installerPath) {
+                    Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
+                }
+                exit 0
+
+            } catch {
+                Write-ColorOutput "Failed to install Lando: $_" -Type Error
+                Write-ColorOutput "Please manually install from: https://docs.lando.dev/getting-started/installation.html" -Type Info
+                if (Test-Path $installerPath) {
+                    Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
+                }
+                exit 1
             }
-            exit 1
         }
     }
 } else {
