@@ -277,7 +277,41 @@ if [ "$SKIP_LANDO_INSTALL" = false ]; then
         fi
     fi
 
-    if [ "$LANDO_INSTALLED" = false ] || [ "$NEEDS_UPGRADE" = true ]; then
+    # Prompt for confirmation if upgrading existing installation
+    PROCEED_WITH_INSTALL=true
+    if [ "$NEEDS_UPGRADE" = true ]; then
+        echo ""
+        print_warning "Your current Lando installation will be upgraded to the latest stable version."
+        print_info "Current version: $LANDO_VERSION"
+        echo ""
+        echo -n "Do you want to proceed with the upgrade? (Y/N/Exit): "
+        read -r RESPONSE
+        # Convert to uppercase for case-insensitive comparison
+        RESPONSE=$(echo "$RESPONSE" | tr '[:lower:]' '[:upper:]')
+
+        case "$RESPONSE" in
+            Y|YES)
+                print_success "Proceeding with Lando upgrade..."
+                PROCEED_WITH_INSTALL=true
+                ;;
+            N|NO)
+                print_warning "Skipping Lando upgrade. Continuing with existing version..."
+                print_info "Note: Your beta/outdated version may have compatibility issues"
+                PROCEED_WITH_INSTALL=false
+                ;;
+            EXIT|E)
+                print_info "Exiting script as requested."
+                exit 0
+                ;;
+            *)
+                print_warning "Invalid response. Treating as 'No' - skipping upgrade..."
+                PROCEED_WITH_INSTALL=false
+                ;;
+        esac
+        echo ""
+    fi
+
+    if { [ "$LANDO_INSTALLED" = false ] || [ "$NEEDS_UPGRADE" = true ]; } && [ "$PROCEED_WITH_INSTALL" = true ]; then
         if [ "$NEEDS_UPGRADE" = true ]; then
             print_info "Preparing to upgrade Lando..."
         else

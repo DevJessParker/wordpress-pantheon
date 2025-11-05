@@ -276,7 +276,39 @@ if (-not $SkipLandoInstall) {
         }
     }
 
-    if (-not $landoInstalled -or $needsUpgrade) {
+    # Prompt for confirmation if upgrading existing installation
+    $proceedWithInstall = $true
+    if ($needsUpgrade) {
+        Write-ColorOutput "" -Type Info
+        Write-ColorOutput "Your current Lando installation will be upgraded to the latest stable version." -Type Warning
+        Write-ColorOutput "Current version: $landoVersion" -Type Info
+        Write-ColorOutput "" -Type Info
+        Write-Host -NoNewline "Do you want to proceed with the upgrade? (Y/N/Exit): "
+        $response = Read-Host
+
+        switch ($response.ToUpper()) {
+            "Y" {
+                Write-ColorOutput "Proceeding with Lando upgrade..." -Type Success
+                $proceedWithInstall = $true
+            }
+            "N" {
+                Write-ColorOutput "Skipping Lando upgrade. Continuing with existing version..." -Type Warning
+                Write-ColorOutput "Note: Your beta/outdated version may have compatibility issues" -Type Info
+                $proceedWithInstall = $false
+            }
+            "EXIT" {
+                Write-ColorOutput "Exiting script as requested." -Type Info
+                exit 0
+            }
+            default {
+                Write-ColorOutput "Invalid response. Treating as 'No' - skipping upgrade..." -Type Warning
+                $proceedWithInstall = $false
+            }
+        }
+        Write-ColorOutput "" -Type Info
+    }
+
+    if ((-not $landoInstalled -or $needsUpgrade) -and $proceedWithInstall) {
         if ($needsUpgrade) {
             Write-ColorOutput "Preparing to upgrade Lando..." -Type Info
         } else {
