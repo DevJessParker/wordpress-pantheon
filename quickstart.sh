@@ -65,19 +65,21 @@ while [[ $# -gt 0 ]]; do
             cat <<EOF
 WordPress + Pantheon Quickstart Setup
 
-Usage: ./quickstart.sh [options]
+Usage: sudo ./quickstart.sh [options]
+
+IMPORTANT: This script MUST be run with sudo (root privileges)
 
 Options:
   --skip-lando-install           Skip Lando installation check/install
   --lando-install-path <path>    Custom installation path for Lando
-                                 Default (macOS): /Applications/Lando.app/Contents/Resources
+                                 Default (macOS): /usr/local/bin
                                  Default (Linux): /usr/local/bin
   --help, -h                     Show this help message
 
 Examples:
-  ./quickstart.sh
-  ./quickstart.sh --lando-install-path "/opt/lando"
-  ./quickstart.sh --skip-lando-install
+  sudo ./quickstart.sh
+  sudo ./quickstart.sh --lando-install-path "/opt/lando"
+  sudo ./quickstart.sh --skip-lando-install
 
 This script will:
   1. Check for prerequisites (Git, Docker)
@@ -90,6 +92,7 @@ This script will:
 
 Requirements:
   - macOS 10.13+ or Linux (Ubuntu 18.04+, Debian 9+, CentOS 7+)
+  - Root privileges (sudo) - REQUIRED
   - Bash 4.0 or higher
   - Git installed
   - Docker Desktop installed and running
@@ -108,6 +111,28 @@ EOF
 done
 
 print_header "WordPress + Pantheon Quickstart Setup"
+
+##############################################################################
+# 0. Check for root/sudo privileges
+##############################################################################
+
+# Check if running with sudo or as root (REQUIRED)
+if [ "$EUID" -ne 0 ]; then
+    print_error "This script requires root privileges (sudo)"
+    echo ""
+    print_info "Please run the script with sudo:"
+    echo ""
+    print_info "  sudo ./quickstart.sh"
+    echo ""
+    print_info "Or if you want to use specific options:"
+    print_info "  sudo ./quickstart.sh --lando-install-path /custom/path"
+    echo ""
+    echo "Press any key to exit..."
+    read -n 1 -s
+    exit 1
+fi
+
+print_success "Running with root privileges"
 
 ##############################################################################
 # 1. Check Prerequisites

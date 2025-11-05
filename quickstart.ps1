@@ -50,14 +50,17 @@ WordPress + Pantheon Quickstart Setup
 
 Usage: .\quickstart.ps1 [options]
 
+IMPORTANT: This script MUST be run as Administrator
+
 Options:
   -SkipLandoInstall           Skip Lando installation check/install
   -LandoInstallPath <path>    Custom installation path for Lando
-                              Default (Admin): C:\Program Files\Lando
-                              Default (User):  %LOCALAPPDATA%\Programs\Lando
+                              Default: C:\Program Files\Lando
   -Help                       Show this help message
 
 Examples:
+  Right-click PowerShell -> Run as Administrator, then:
+
   .\quickstart.ps1
   .\quickstart.ps1 -LandoInstallPath "D:\Tools\Lando"
   .\quickstart.ps1 -SkipLandoInstall
@@ -73,6 +76,7 @@ This script will:
 
 Requirements:
   - Windows 10/11
+  - Administrator privileges (REQUIRED)
   - PowerShell 5.1 or higher
   - Internet connection
   - Pantheon account with machine token
@@ -99,11 +103,20 @@ if ($psVersion.Major -lt 5) {
 
 Write-ColorOutput "Step 1: Checking Prerequisites" -Type Header
 
-# Check if running as administrator
+# Check if running as administrator (REQUIRED)
 $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
-    Write-ColorOutput "Not running as Administrator. May need elevated privileges for installations." -Type Warning
-    Write-ColorOutput "If installations fail, right-click PowerShell and 'Run as Administrator'" -Type Info
+    Write-ColorOutput "ERROR: This script requires Administrator privileges" -Type Error
+    Write-ColorOutput "" -Type Info
+    Write-ColorOutput "Please run PowerShell as Administrator:" -Type Info
+    Write-ColorOutput "  1. Close this window" -Type Info
+    Write-ColorOutput "  2. Right-click PowerShell" -Type Info
+    Write-ColorOutput "  3. Select 'Run as Administrator'" -Type Info
+    Write-ColorOutput "  4. Run the script again: .\quickstart.ps1" -Type Info
+    Write-Host ""
+    Write-Host "Press any key to exit..." -NoNewline
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    exit 1
 }
 
 # Check Git
@@ -275,21 +288,13 @@ if (-not $SkipLandoInstall) {
                         } catch {
                             Write-ColorOutput "Cannot create directory: $parentDir" -Type Error
                             Write-ColorOutput "Error: $_" -Type Error
-                            Write-ColorOutput "Please use a different path or run as Administrator" -Type Info
                             exit 1
                         }
                     }
                 } else {
-                    # Use default paths based on privileges
-                    $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-
-                    if ($isAdmin) {
-                        $installDir = "C:\Program Files\Lando"
-                        Write-ColorOutput "Installing to system directory (admin mode): $installDir" -Type Info
-                    } else {
-                        $installDir = "${env:LOCALAPPDATA}\Programs\Lando"
-                        Write-ColorOutput "Installing to user directory (no admin rights): $installDir" -Type Info
-                    }
+                    # Use default system-wide installation path (requires admin)
+                    $installDir = "C:\Program Files\Lando"
+                    Write-ColorOutput "Installing to system directory: $installDir" -Type Info
                 }
 
                 # Create installation directory if it doesn't exist
@@ -343,39 +348,19 @@ if (-not $SkipLandoInstall) {
                     if (Test-Path "$installDir\lando.exe") {
                         Write-ColorOutput "Lando executable found at: $installDir" -Type Success
 
-                        # Explicitly add to PATH if not already there
-                        # Use Machine PATH if admin, User PATH otherwise
-                        $isAdminNow = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-
-                        if ($isAdminNow) {
-                            # Running as admin - update system-wide PATH
-                            $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
-                            if ($machinePath -notlike "*$installDir*") {
-                                try {
-                                    Write-ColorOutput "Adding $installDir to system PATH..." -Type Info
-                                    [Environment]::SetEnvironmentVariable("Path", "$machinePath;$installDir", "Machine")
-                                    Write-ColorOutput "Successfully added to system PATH (persists for all users)" -Type Success
-                                } catch {
-                                    Write-ColorOutput "Could not update system PATH: $_" -Type Warning
-                                }
-                            } else {
-                                Write-ColorOutput "Already in system PATH" -Type Success
+                        # Explicitly add to system PATH if not already there
+                        $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+                        if ($machinePath -notlike "*$installDir*") {
+                            try {
+                                Write-ColorOutput "Adding $installDir to system PATH..." -Type Info
+                                [Environment]::SetEnvironmentVariable("Path", "$machinePath;$installDir", "Machine")
+                                Write-ColorOutput "Successfully added to system PATH (persists for all users)" -Type Success
+                            } catch {
+                                Write-ColorOutput "Could not update system PATH: $_" -Type Error
+                                Write-ColorOutput "Installation may be incomplete" -Type Warning
                             }
                         } else {
-                            # Running as regular user - update user PATH
-                            $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-                            if ($userPath -notlike "*$installDir*") {
-                                try {
-                                    Write-ColorOutput "Adding $installDir to user PATH..." -Type Info
-                                    [Environment]::SetEnvironmentVariable("Path", "$userPath;$installDir", "User")
-                                    Write-ColorOutput "Successfully added to user PATH (persists for your account)" -Type Success
-                                } catch {
-                                    Write-ColorOutput "Could not update user PATH: $_" -Type Warning
-                                    Write-ColorOutput "You can add manually: System Properties -> Environment Variables -> User Variables" -Type Info
-                                }
-                            } else {
-                                Write-ColorOutput "Already in user PATH" -Type Success
-                            }
+                            Write-ColorOutput "Already in system PATH" -Type Success
                         }
 
                         # Refresh environment variables for current session

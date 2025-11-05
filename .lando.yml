@@ -114,8 +114,8 @@ proxy:
 
 events:
   post-start:
-    - appserver: echo "🚀 Lando is ready! Access your site at https://wordpress-pantheon.lndo.site"
-    - appserver: echo "📊 PhpMyAdmin available at: https://pma.wordpress-pantheon.lndo.site"
+    - appserver: echo "Lando is ready! Access your site at https://wordpress-pantheon.lndo.site"
+    - appserver: echo "PhpMyAdmin available at https://pma.wordpress-pantheon.lndo.site"
     - appserver: echo ""
     - appserver: echo "Quick Commands:"
     - appserver: echo "  lando pull-db    - Pull database from Pantheon Dev"
