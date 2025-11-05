@@ -220,20 +220,68 @@ if (-not $SkipLandoInstall) {
                 # Run installer
                 $process = Start-Process -FilePath $installerPath -Wait -PassThru -NoNewWindow
 
-                if ($process.ExitCode -eq 0) {
-                    Write-ColorOutput "Lando installation complete" -Type Success
-                    Write-ColorOutput "Please restart PowerShell for Lando to be available in PATH" -Type Warning
-                    Write-ColorOutput "After restarting, run: .\quickstart.ps1 -SkipLandoInstall" -Type Info
-                } else {
-                    Write-ColorOutput "Installer exited with code: $($process.ExitCode)" -Type Warning
-                    Write-ColorOutput "Lando may have been installed. Try restarting PowerShell and running: lando version" -Type Info
-                }
-
-                # Clean up
+                # Clean up installer
                 if (Test-Path $installerPath) {
                     Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
                 }
-                exit 0
+
+                if ($process.ExitCode -eq 0 -or $process.ExitCode -eq $null) {
+                    Write-ColorOutput "Lando installation completed" -Type Success
+                    Write-ColorOutput "Verifying installation and refreshing PATH..." -Type Info
+
+                    # Refresh PATH from registry for current session
+                    $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+                    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+                    $env:Path = "$machinePath;$userPath"
+
+                    # Common Lando installation paths
+                    $landoPaths = @(
+                        "C:\Program Files\Lando",
+                        "${env:ProgramFiles}\Lando",
+                        "${env:LOCALAPPDATA}\Programs\Lando"
+                    )
+
+                    # Check if Lando is in PATH, if not add it
+                    $landoFound = $false
+                    foreach ($path in $landoPaths) {
+                        if (Test-Path "$path\lando.exe") {
+                            if ($env:Path -notlike "*$path*") {
+                                Write-ColorOutput "Adding $path to PATH for current session..." -Type Info
+                                $env:Path += ";$path"
+                            }
+                            $landoFound = $true
+                            break
+                        }
+                    }
+
+                    # Wait a moment for installation to complete
+                    Start-Sleep -Seconds 2
+
+                    # Verify Lando is now available
+                    try {
+                        $landoVersion = & lando version 2>&1
+                        if ($LASTEXITCODE -eq 0) {
+                            Write-ColorOutput "Lando verified successfully: $landoVersion" -Type Success
+                            Write-ColorOutput "Continuing with setup..." -Type Info
+                            Write-Host ""
+                            # Don't exit - continue with the rest of the script
+                        } else {
+                            throw "Lando command failed"
+                        }
+                    } catch {
+                        Write-ColorOutput "Could not verify Lando installation automatically" -Type Warning
+                        Write-ColorOutput "Please close PowerShell, open a new window, and run:" -Type Info
+                        Write-ColorOutput "  lando version" -Type Info
+                        Write-ColorOutput "Then continue setup with:" -Type Info
+                        Write-ColorOutput "  .\quickstart.ps1 -SkipLandoInstall" -Type Info
+                        exit 0
+                    }
+                } else {
+                    Write-ColorOutput "Installer exited with code: $($process.ExitCode)" -Type Warning
+                    Write-ColorOutput "Please close PowerShell, open a new window, and verify with: lando version" -Type Info
+                    Write-ColorOutput "Then run: .\quickstart.ps1 -SkipLandoInstall" -Type Info
+                    exit 0
+                }
 
             } catch {
                 Write-ColorOutput "Failed to install Lando: $_" -Type Error
