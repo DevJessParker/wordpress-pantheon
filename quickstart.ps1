@@ -668,14 +668,19 @@ $maxAttempts = 3
 for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     if ($attempt -eq 1) {
         Write-ColorOutput "Starting Lando (attempt $attempt/$maxAttempts)..." -Type Info
+        # Temporarily allow non-terminating errors so Docker Compose stderr doesn't stop execution
+        $ErrorActionPreference = 'Continue'
         & lando start 2>&1 | Out-Host
+        $ErrorActionPreference = 'Stop'
     } elseif ($attempt -eq 2) {
         Write-ColorOutput "First attempt failed. Destroying and starting fresh (attempt $attempt/$maxAttempts)..." -Type Warning
         & lando poweroff 2>&1 | Out-Null
         Start-Sleep -Seconds 2
         & lando destroy -y 2>&1 | Out-Null
         Start-Sleep -Seconds 2
+        $ErrorActionPreference = 'Continue'
         & lando start 2>&1 | Out-Host
+        $ErrorActionPreference = 'Stop'
     } else {
         Write-ColorOutput "Second attempt failed. Performing aggressive cleanup (attempt $attempt/$maxAttempts)..." -Type Warning
         & lando poweroff 2>&1 | Out-Null
@@ -685,7 +690,9 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
         Write-ColorOutput "Cleaning Docker system..." -Type Info
         & docker system prune -f 2>&1 | Out-Null
         Start-Sleep -Seconds 2
+        $ErrorActionPreference = 'Continue'
         & lando start 2>&1 | Out-Host
+        $ErrorActionPreference = 'Stop'
     }
 
     # Always verify containers are actually running, regardless of exit codes or exceptions
