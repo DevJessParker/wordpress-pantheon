@@ -248,12 +248,42 @@ fi
 if [ "$SKIP_LANDO_INSTALL" = false ]; then
     print_header "Step 2: Checking/Installing Lando"
 
+    LANDO_INSTALLED=false
+    NEEDS_UPGRADE=false
+
     if command -v lando &> /dev/null; then
         LANDO_VERSION=$(lando version 2>&1 || echo "unknown")
+        LANDO_INSTALLED=true
         print_success "Lando is already installed: $LANDO_VERSION"
-    else
-        print_warning "Lando is not installed"
-        print_info "Installing Lando..."
+
+        # Check if it's a beta version
+        if echo "$LANDO_VERSION" | grep -q "beta"; then
+            print_warning "Beta version detected - upgrading to stable release"
+            NEEDS_UPGRADE=true
+        # Check if it's a very old version (pre-v3.20)
+        elif echo "$LANDO_VERSION" | grep -Eq 'v([0-9]+)\.([0-9]+)\.([0-9]+)'; then
+            MAJOR=$(echo "$LANDO_VERSION" | sed -E 's/v([0-9]+)\..*/\1/')
+            MINOR=$(echo "$LANDO_VERSION" | sed -E 's/v[0-9]+\.([0-9]+)\..*/\1/')
+
+            if [ "$MAJOR" -lt 3 ] || { [ "$MAJOR" -eq 3 ] && [ "$MINOR" -lt 20 ]; }; then
+                print_warning "Outdated version detected - upgrading to latest stable"
+                NEEDS_UPGRADE=true
+            fi
+        fi
+
+        if [ "$NEEDS_UPGRADE" = false ]; then
+            print_success "Lando version is up-to-date (idempotent check passed)"
+            print_info "Skipping installation..."
+        fi
+    fi
+
+    if [ "$LANDO_INSTALLED" = false ] || [ "$NEEDS_UPGRADE" = true ]; then
+        if [ "$NEEDS_UPGRADE" = true ]; then
+            print_info "Preparing to upgrade Lando..."
+        else
+            print_warning "Lando is not installed"
+            print_info "Installing Lando..."
+        fi
 
         # Lando official installer URLs (no longer on GitHub releases)
         # Latest stable versions are downloaded from lando.dev

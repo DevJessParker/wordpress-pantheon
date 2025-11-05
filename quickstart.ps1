@@ -232,7 +232,6 @@ if (-not $SkipLandoInstall) {
             $landoVersion = & lando version 2>&1
             if ($LASTEXITCODE -eq 0) {
                 $landoInstalled = $true
-                Write-ColorOutput "Lando is already installed: $landoVersion" -Type Success
             }
         } catch {
             # Lando not in PATH, continue with installation
@@ -241,15 +240,48 @@ if (-not $SkipLandoInstall) {
         # Found Lando at specific path, get version
         try {
             $landoVersion = & "$landoPath\lando.exe" version 2>&1
-            Write-ColorOutput "Lando is already installed at: $landoPath" -Type Success
-            Write-ColorOutput "Version: $landoVersion" -Type Info
         } catch {
             Write-ColorOutput "Lando found but unable to verify version" -Type Warning
         }
     }
 
-    if (-not $landoInstalled) {
-        Write-ColorOutput "Lando is not installed" -Type Warning
+    # Check if installed version needs upgrade
+    $needsUpgrade = $false
+    if ($landoInstalled -and $landoVersion) {
+        if ($landoPath) {
+            Write-ColorOutput "Lando is already installed at: $landoPath" -Type Success
+        } else {
+            Write-ColorOutput "Lando is already installed (found in PATH)" -Type Success
+        }
+        Write-ColorOutput "Version: $landoVersion" -Type Info
+
+        # Check if it's a beta version
+        if ($landoVersion -match 'beta') {
+            Write-ColorOutput "Beta version detected - upgrading to stable release" -Type Warning
+            $needsUpgrade = $true
+        }
+        # Check if it's a very old version (pre-v3.20)
+        elseif ($landoVersion -match 'v(\d+)\.(\d+)\.(\d+)') {
+            $major = [int]$matches[1]
+            $minor = [int]$matches[2]
+
+            if ($major -lt 3 -or ($major -eq 3 -and $minor -lt 20)) {
+                Write-ColorOutput "Outdated version detected - upgrading to latest stable" -Type Warning
+                $needsUpgrade = $true
+            }
+        }
+
+        if (-not $needsUpgrade) {
+            Write-ColorOutput "Lando version is up-to-date (idempotent check passed)" -Type Success
+        }
+    }
+
+    if (-not $landoInstalled -or $needsUpgrade) {
+        if ($needsUpgrade) {
+            Write-ColorOutput "Preparing to upgrade Lando..." -Type Info
+        } else {
+            Write-ColorOutput "Lando is not installed" -Type Warning
+        }
 
         # Lando official installer URL (no longer on GitHub releases)
         # Latest stable version is downloaded from lando.dev
@@ -522,7 +554,7 @@ if (-not $SkipLandoInstall) {
             }
         }
     } else {
-        Write-ColorOutput "Lando is already installed (idempotent check passed)" -Type Success
+        # Lando is already installed and up-to-date (message already shown above)
         Write-ColorOutput "Skipping installation..." -Type Info
 
         # Make sure Lando is in PATH for current session
