@@ -1,19 +1,47 @@
-##############################################################################
 # WordPress + Pantheon Quickstart Setup Script (Windows)
 # This script automates the installation and configuration process
-##############################################################################
+# Requires: PowerShell 5.1 or higher
 
+#Requires -Version 5.1
+
+[CmdletBinding()]
 param(
     [switch]$SkipLandoInstall,
     [switch]$Help
 )
 
-# Colors for output
-function Write-Success { param($Message) Write-Host "✓ $Message" -ForegroundColor Green }
-function Write-Info { param($Message) Write-Host "ℹ $Message" -ForegroundColor Cyan }
-function Write-Warning { param($Message) Write-Host "⚠ $Message" -ForegroundColor Yellow }
-function Write-Error { param($Message) Write-Host "✗ $Message" -ForegroundColor Red }
-function Write-Header { param($Message) Write-Host "`n========================================" -ForegroundColor Magenta; Write-Host $Message -ForegroundColor Magenta; Write-Host "========================================`n" -ForegroundColor Magenta }
+$ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+
+# Helper functions for colored output
+function Write-ColorOutput {
+    param(
+        [string]$Message,
+        [string]$Type = "Info"
+    )
+
+    switch ($Type) {
+        "Success" {
+            Write-Host "[OK] $Message" -ForegroundColor Green
+        }
+        "Info" {
+            Write-Host "[INFO] $Message" -ForegroundColor Cyan
+        }
+        "Warning" {
+            Write-Host "[WARN] $Message" -ForegroundColor Yellow
+        }
+        "Error" {
+            Write-Host "[ERROR] $Message" -ForegroundColor Red
+        }
+        "Header" {
+            Write-Host ""
+            Write-Host "========================================" -ForegroundColor Magenta
+            Write-Host $Message -ForegroundColor Magenta
+            Write-Host "========================================" -ForegroundColor Magenta
+            Write-Host ""
+        }
+    }
+}
 
 if ($Help) {
     Write-Host @"
@@ -36,7 +64,7 @@ This script will:
 
 Requirements:
   - Windows 10/11
-  - Administrator privileges (for installations)
+  - PowerShell 5.1 or higher
   - Internet connection
   - Pantheon account with machine token
 
@@ -44,59 +72,72 @@ Requirements:
     exit 0
 }
 
-Write-Header "WordPress + Pantheon Quickstart Setup"
+Write-ColorOutput "WordPress + Pantheon Quickstart Setup" -Type Header
+
+# Check PowerShell version
+$psVersion = $PSVersionTable.PSVersion
+Write-ColorOutput "PowerShell Version: $($psVersion.Major).$($psVersion.Minor)" -Type Info
+
+if ($psVersion.Major -lt 5) {
+    Write-ColorOutput "PowerShell 5.1 or higher is required. Please upgrade PowerShell." -Type Error
+    Write-ColorOutput "Download from: https://aka.ms/powershell" -Type Info
+    exit 1
+}
 
 ##############################################################################
 # 1. Check Prerequisites
 ##############################################################################
 
-Write-Header "Step 1: Checking Prerequisites"
+Write-ColorOutput "Step 1: Checking Prerequisites" -Type Header
 
-# Check if running as administrator for installations
+# Check if running as administrator
 $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
-    Write-Warning "Not running as Administrator. May need elevated privileges for installations."
-    Write-Info "If installations fail, re-run as Administrator"
+    Write-ColorOutput "Not running as Administrator. May need elevated privileges for installations." -Type Warning
+    Write-ColorOutput "If installations fail, right-click PowerShell and 'Run as Administrator'" -Type Info
 }
 
 # Check Git
-Write-Info "Checking for Git..."
-$gitInstalled = Get-Command git -ErrorAction SilentlyContinue
-if ($gitInstalled) {
-    $gitVersion = git --version
-    Write-Success "Git is installed: $gitVersion"
-} else {
-    Write-Error "Git is not installed!"
-    Write-Info "Please install Git from: https://git-scm.com/download/win"
-    Write-Info "After installing Git, re-run this script."
+Write-ColorOutput "Checking for Git..." -Type Info
+try {
+    $gitVersion = & git --version 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-ColorOutput "Git is installed: $gitVersion" -Type Success
+    } else {
+        throw "Git command failed"
+    }
+} catch {
+    Write-ColorOutput "Git is not installed!" -Type Error
+    Write-ColorOutput "Please install Git from: https://git-scm.com/download/win" -Type Info
+    Write-ColorOutput "After installing Git, restart PowerShell and re-run this script." -Type Info
     exit 1
 }
 
 # Check Docker Desktop
-Write-Info "Checking for Docker Desktop..."
-$dockerInstalled = Get-Command docker -ErrorAction SilentlyContinue
-if ($dockerInstalled) {
-    try {
-        $dockerVersion = docker --version
-        Write-Success "Docker is installed: $dockerVersion"
+Write-ColorOutput "Checking for Docker Desktop..." -Type Info
+try {
+    $dockerVersion = & docker --version 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-ColorOutput "Docker is installed: $dockerVersion" -Type Success
 
         # Check if Docker is running
-        docker ps > $null 2>&1
+        $null = & docker ps 2>&1
         if ($LASTEXITCODE -eq 0) {
-            Write-Success "Docker is running"
+            Write-ColorOutput "Docker is running" -Type Success
         } else {
-            Write-Warning "Docker is installed but not running"
-            Write-Info "Please start Docker Desktop and wait for it to be ready"
-            Write-Host "Press any key when Docker Desktop is running..."
+            Write-ColorOutput "Docker is installed but not running" -Type Warning
+            Write-ColorOutput "Please start Docker Desktop and wait for it to be ready" -Type Info
+            Write-Host "Press any key when Docker Desktop is running..." -NoNewline
             $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+            Write-Host ""
         }
-    } catch {
-        Write-Warning "Docker might not be running properly"
+    } else {
+        throw "Docker command failed"
     }
-} else {
-    Write-Error "Docker Desktop is not installed!"
-    Write-Info "Please install Docker Desktop from: https://www.docker.com/products/docker-desktop"
-    Write-Info "After installing Docker Desktop, re-run this script."
+} catch {
+    Write-ColorOutput "Docker Desktop is not installed!" -Type Error
+    Write-ColorOutput "Please install Docker Desktop from: https://www.docker.com/products/docker-desktop" -Type Info
+    Write-ColorOutput "After installing Docker Desktop, restart PowerShell and re-run this script." -Type Info
     exit 1
 }
 
@@ -105,119 +146,149 @@ if ($dockerInstalled) {
 ##############################################################################
 
 if (-not $SkipLandoInstall) {
-    Write-Header "Step 2: Checking/Installing Lando"
+    Write-ColorOutput "Step 2: Checking/Installing Lando" -Type Header
 
-    $landoInstalled = Get-Command lando -ErrorAction SilentlyContinue
-    if ($landoInstalled) {
-        $landoVersion = lando version
-        Write-Success "Lando is already installed: $landoVersion"
-    } else {
-        Write-Warning "Lando is not installed"
-        Write-Info "Downloading Lando installer..."
+    try {
+        $landoVersion = & lando version 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            Write-ColorOutput "Lando is already installed: $landoVersion" -Type Success
+        } else {
+            throw "Lando not found"
+        }
+    } catch {
+        Write-ColorOutput "Lando is not installed" -Type Warning
+        Write-ColorOutput "Downloading Lando installer..." -Type Info
 
-        $landoUrl = "https://github.com/lando/lando/releases/download/v3.21.0/lando-x64-v3.21.0.exe"
-        $installerPath = "$env:TEMP\lando-installer.exe"
+        # Use latest stable version
+        $landoVersion = "3.21.0"
+        $landoUrl = "https://github.com/lando/lando/releases/download/v$landoVersion/lando-x64-v$landoVersion.exe"
+        $installerPath = Join-Path $env:TEMP "lando-installer.exe"
 
         try {
-            Invoke-WebRequest -Uri $landoUrl -OutFile $installerPath
-            Write-Success "Lando installer downloaded"
+            # Download with progress
+            $webClient = New-Object System.Net.WebClient
+            $webClient.DownloadFile($landoUrl, $installerPath)
+            Write-ColorOutput "Lando installer downloaded" -Type Success
 
-            Write-Info "Installing Lando... (this may take a few minutes)"
-            Write-Warning "Please follow the installer prompts"
+            Write-ColorOutput "Installing Lando... (this may take a few minutes)" -Type Info
+            Write-ColorOutput "Please follow the installer prompts" -Type Warning
 
-            Start-Process -FilePath $installerPath -Wait
+            # Run installer
+            Start-Process -FilePath $installerPath -Wait -NoNewWindow
 
-            Write-Success "Lando installation complete"
-            Write-Warning "You may need to restart your terminal/PowerShell for Lando to be available"
-            Write-Info "After restarting, run this script again to continue setup"
+            Write-ColorOutput "Lando installation complete" -Type Success
+            Write-ColorOutput "Please restart PowerShell for Lando to be available in PATH" -Type Warning
+            Write-ColorOutput "After restarting, run this script again to continue setup" -Type Info
 
-            Remove-Item $installerPath -ErrorAction SilentlyContinue
+            # Clean up
+            if (Test-Path $installerPath) {
+                Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
+            }
             exit 0
+
         } catch {
-            Write-Error "Failed to download or install Lando"
-            Write-Info "Please manually install from: https://docs.lando.dev/getting-started/installation.html"
+            Write-ColorOutput "Failed to download or install Lando: $_" -Type Error
+            Write-ColorOutput "Please manually install from: https://docs.lando.dev/getting-started/installation.html" -Type Info
+            if (Test-Path $installerPath) {
+                Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
+            }
             exit 1
         }
     }
 } else {
-    Write-Info "Skipping Lando installation check"
+    Write-ColorOutput "Skipping Lando installation check" -Type Info
 }
 
 ##############################################################################
 # 3. Configure Environment
 ##############################################################################
 
-Write-Header "Step 3: Configuring Environment"
+Write-ColorOutput "Step 3: Configuring Environment" -Type Header
 
 # Check if .env already exists
 if (Test-Path ".env") {
-    Write-Warning ".env file already exists"
+    Write-ColorOutput ".env file already exists" -Type Warning
     $overwrite = Read-Host "Do you want to reconfigure? (y/N)"
     if ($overwrite -ne "y" -and $overwrite -ne "Y") {
-        Write-Info "Keeping existing .env file"
+        Write-ColorOutput "Keeping existing .env file" -Type Info
     } else {
-        Remove-Item ".env"
+        Remove-Item ".env" -Force
     }
 }
 
 if (-not (Test-Path ".env")) {
-    Write-Info "Creating .env file..."
+    Write-ColorOutput "Creating .env file..." -Type Info
 
     # Prompt for Pantheon credentials
-    Write-Host "`nPlease provide your Pantheon site information:"
-    Write-Info "You can find these in your Pantheon Dashboard"
+    Write-Host ""
+    Write-Host "Please provide your Pantheon site information:"
+    Write-ColorOutput "You can find these in your Pantheon Dashboard" -Type Info
     Write-Host ""
 
     $pantheonSite = Read-Host "Pantheon Site Name (e.g., my-awesome-site)"
-    $pantheonSiteId = Read-Host "Pantheon Site UUID (from Settings → About)"
-    $terminusToken = Read-Host "Terminus Machine Token (from Account → Machine Tokens)" -AsSecureString
-    $terminusTokenPlain = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($terminusToken))
+    $pantheonSiteId = Read-Host "Pantheon Site UUID (from Settings -> About)"
+    $terminusTokenSecure = Read-Host "Terminus Machine Token (from Account -> Machine Tokens)" -AsSecureString
+    $terminusToken = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($terminusTokenSecure))
 
     # Create .env file
-    Copy-Item ".env.example" ".env"
+    if (-not (Test-Path ".env.example")) {
+        Write-ColorOutput ".env.example not found! Are you in the correct directory?" -Type Error
+        exit 1
+    }
+
+    Copy-Item ".env.example" ".env" -Force
 
     # Update .env with user values
-    (Get-Content ".env") | ForEach-Object {
-        $_ -replace 'PANTHEON_SITE=your-site-name', "PANTHEON_SITE=$pantheonSite" `
-           -replace 'PANTHEON_SITE_ID=your-site-uuid', "PANTHEON_SITE_ID=$pantheonSiteId" `
-           -replace 'TERMINUS_TOKEN=your-terminus-machine-token', "TERMINUS_TOKEN=$terminusTokenPlain" `
-           -replace 'PANTHEON_SITE_URL=dev-your-site-name.pantheonsite.io', "PANTHEON_SITE_URL=dev-$pantheonSite.pantheonsite.io"
-    } | Set-Content ".env"
+    $envContent = Get-Content ".env" -Raw
+    $envContent = $envContent -replace 'PANTHEON_SITE=your-site-name', "PANTHEON_SITE=$pantheonSite"
+    $envContent = $envContent -replace 'PANTHEON_SITE_ID=your-site-uuid', "PANTHEON_SITE_ID=$pantheonSiteId"
+    $envContent = $envContent -replace 'TERMINUS_TOKEN=your-terminus-machine-token', "TERMINUS_TOKEN=$terminusToken"
+    $envContent = $envContent -replace 'PANTHEON_SITE_URL=dev-your-site-name.pantheonsite.io', "PANTHEON_SITE_URL=dev-$pantheonSite.pantheonsite.io"
 
-    Write-Success ".env file created and configured"
+    Set-Content ".env" -Value $envContent -NoNewline
+
+    Write-ColorOutput ".env file created and configured" -Type Success
 }
 
 # Update .lando.yml with site details
-Write-Info "Updating .lando.yml configuration..."
+Write-ColorOutput "Updating .lando.yml configuration..." -Type Info
 if (Test-Path ".env") {
     # Read PANTHEON_SITE and PANTHEON_SITE_ID from .env
-    $envContent = Get-Content ".env"
-    $pantheonSite = ($envContent | Select-String "PANTHEON_SITE=" | ForEach-Object { $_.ToString().Split("=")[1] })
-    $pantheonSiteId = ($envContent | Select-String "PANTHEON_SITE_ID=" | ForEach-Object { $_.ToString().Split("=")[1] })
+    $envLines = Get-Content ".env"
+    $pantheonSite = ($envLines | Where-Object { $_ -match "^PANTHEON_SITE=" }) -replace "PANTHEON_SITE=", ""
+    $pantheonSiteId = ($envLines | Where-Object { $_ -match "^PANTHEON_SITE_ID=" }) -replace "PANTHEON_SITE_ID=", ""
+
+    if (-not (Test-Path ".lando.yml")) {
+        Write-ColorOutput ".lando.yml not found! Are you in the correct directory?" -Type Error
+        exit 1
+    }
 
     # Update .lando.yml
-    (Get-Content ".lando.yml") | ForEach-Object {
-        $_ -replace 'site: YOUR_PANTHEON_SITE_NAME', "site: $pantheonSite" `
-           -replace 'id: YOUR_PANTHEON_SITE_ID', "id: $pantheonSiteId"
-    } | Set-Content ".lando.yml"
+    $landoContent = Get-Content ".lando.yml" -Raw
+    $landoContent = $landoContent -replace 'site: YOUR_PANTHEON_SITE_NAME', "site: $pantheonSite"
+    $landoContent = $landoContent -replace 'id: YOUR_PANTHEON_SITE_ID', "id: $pantheonSiteId"
+    Set-Content ".lando.yml" -Value $landoContent -NoNewline
 
-    Write-Success ".lando.yml updated with your site details"
+    Write-ColorOutput ".lando.yml updated with your site details" -Type Success
 }
 
 ##############################################################################
 # 4. Start Lando
 ##############################################################################
 
-Write-Header "Step 4: Starting Lando Environment"
+Write-ColorOutput "Step 4: Starting Lando Environment" -Type Header
 
-Write-Info "Starting Lando... (this may take several minutes on first run)"
-lando start
-
-if ($LASTEXITCODE -eq 0) {
-    Write-Success "Lando started successfully!"
-} else {
-    Write-Error "Failed to start Lando"
-    Write-Info "Check the error messages above and try running 'lando start' manually"
+Write-ColorOutput "Starting Lando... (this may take several minutes on first run)" -Type Info
+try {
+    & lando start
+    if ($LASTEXITCODE -eq 0) {
+        Write-ColorOutput "Lando started successfully!" -Type Success
+    } else {
+        throw "Lando start failed with exit code $LASTEXITCODE"
+    }
+} catch {
+    Write-ColorOutput "Failed to start Lando: $_" -Type Error
+    Write-ColorOutput "Check the error messages above and try running 'lando start' manually" -Type Info
     exit 1
 }
 
@@ -225,24 +296,27 @@ if ($LASTEXITCODE -eq 0) {
 # 5. Authenticate with Terminus
 ##############################################################################
 
-Write-Header "Step 5: Authenticating with Terminus"
+Write-ColorOutput "Step 5: Authenticating with Terminus" -Type Header
 
 # Read token from .env
-$envContent = Get-Content ".env"
-$terminusToken = ($envContent | Select-String "TERMINUS_TOKEN=" | ForEach-Object { $_.ToString().Split("=")[1] })
+$envLines = Get-Content ".env"
+$terminusToken = ($envLines | Where-Object { $_ -match "^TERMINUS_TOKEN=" }) -replace "TERMINUS_TOKEN=", ""
 
-Write-Info "Authenticating with Terminus..."
-lando terminus auth:login --machine-token=$terminusToken
+Write-ColorOutput "Authenticating with Terminus..." -Type Info
+try {
+    & lando terminus auth:login --machine-token=$terminusToken
+    if ($LASTEXITCODE -eq 0) {
+        Write-ColorOutput "Terminus authentication successful!" -Type Success
 
-if ($LASTEXITCODE -eq 0) {
-    Write-Success "Terminus authentication successful!"
-
-    # Verify authentication
-    $whoami = lando terminus auth:whoami
-    Write-Success "Logged in as: $whoami"
-} else {
-    Write-Error "Failed to authenticate with Terminus"
-    Write-Info "Please check your machine token and try again"
+        # Verify authentication
+        $whoami = & lando terminus auth:whoami
+        Write-ColorOutput "Logged in as: $whoami" -Type Success
+    } else {
+        throw "Terminus auth failed with exit code $LASTEXITCODE"
+    }
+} catch {
+    Write-ColorOutput "Failed to authenticate with Terminus: $_" -Type Error
+    Write-ColorOutput "Please check your machine token and try again" -Type Info
     exit 1
 }
 
@@ -250,49 +324,55 @@ if ($LASTEXITCODE -eq 0) {
 # 6. Pull Data from Pantheon
 ##############################################################################
 
-Write-Header "Step 6: Syncing Data from Pantheon"
+Write-ColorOutput "Step 6: Syncing Data from Pantheon" -Type Header
 
-Write-Info "This will pull the database and files from your Pantheon Dev environment"
+Write-ColorOutput "This will pull the database and files from your Pantheon Dev environment" -Type Info
 $pullData = Read-Host "Do you want to pull data now? (Y/n)"
 
 if ($pullData -ne "n" -and $pullData -ne "N") {
-    Write-Info "Pulling database from Pantheon Dev..."
-    lando pull-db
-
-    if ($LASTEXITCODE -eq 0) {
-        Write-Success "Database pulled successfully!"
-    } else {
-        Write-Warning "Failed to pull database. You can try again later with: lando pull-db"
+    Write-ColorOutput "Pulling database from Pantheon Dev..." -Type Info
+    try {
+        & lando pull-db
+        if ($LASTEXITCODE -eq 0) {
+            Write-ColorOutput "Database pulled successfully!" -Type Success
+        } else {
+            Write-ColorOutput "Failed to pull database. You can try again later with: lando pull-db" -Type Warning
+        }
+    } catch {
+        Write-ColorOutput "Error pulling database: $_" -Type Warning
     }
 
-    Write-Info "Pulling files from Pantheon Dev..."
-    lando pull-files
-
-    if ($LASTEXITCODE -eq 0) {
-        Write-Success "Files pulled successfully!"
-    } else {
-        Write-Warning "Failed to pull files. You can try again later with: lando pull-files"
+    Write-ColorOutput "Pulling files from Pantheon Dev..." -Type Info
+    try {
+        & lando pull-files
+        if ($LASTEXITCODE -eq 0) {
+            Write-ColorOutput "Files pulled successfully!" -Type Success
+        } else {
+            Write-ColorOutput "Failed to pull files. You can try again later with: lando pull-files" -Type Warning
+        }
+    } catch {
+        Write-ColorOutput "Error pulling files: $_" -Type Warning
     }
 } else {
-    Write-Info "Skipping data sync. You can run 'lando pull' later to sync data"
+    Write-ColorOutput "Skipping data sync. You can run 'lando pull' later to sync data" -Type Info
 }
 
 ##############################################################################
 # 7. Complete!
 ##############################################################################
 
-Write-Header "Setup Complete!"
+Write-ColorOutput "Setup Complete!" -Type Header
 
 Write-Host @"
 
 Your WordPress + Pantheon local development environment is ready!
 
-🌐 Access your site:
+[SITES]
    Site URL:      https://wordpress-pantheon.lndo.site
    Admin URL:     https://wordpress-pantheon.lndo.site/wp-admin
    PhpMyAdmin:    https://pma.wordpress-pantheon.lndo.site
 
-📚 Useful Commands:
+[COMMANDS]
    lando start           - Start the development environment
    lando stop            - Stop the development environment
    lando pull-db         - Pull database from Pantheon Dev
@@ -300,20 +380,12 @@ Your WordPress + Pantheon local development environment is ready!
    lando wp              - Run WP-CLI commands
    lando terminus        - Run Terminus commands
 
-   Or use the Makefile shortcuts:
-   make start            - Start Lando
-   make pull             - Pull database and files
-   make site             - Open site in browser
-   make help             - Show all available commands
-
-📖 Documentation:
+[DOCUMENTATION]
    README.md             - Full documentation
    SETUP.md              - Detailed setup guide
    SECURITY.md           - Security best practices
    QUICK-REFERENCE.md    - Command reference
 
-🎉 Happy coding!
-
 "@
 
-Write-Success "Setup completed successfully!"
+Write-ColorOutput "Setup completed successfully!" -Type Success
