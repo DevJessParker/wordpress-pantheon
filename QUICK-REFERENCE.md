@@ -1,5 +1,26 @@
 # Quick Reference Card
 
+## ⚡ First Time Setup
+
+### Automated Setup (Quickstart)
+```powershell
+# Windows
+.\quickstart.ps1
+
+# macOS/Linux
+./quickstart.sh
+```
+
+### Manual Setup
+```bash
+cp .env.example .env       # Configure environment
+lando start                # Start environment
+lando terminus auth:login  # Authenticate
+lando pull                 # Pull data from Pantheon
+```
+
+---
+
 ## 🚀 Essential Commands
 
 ### Environment Management

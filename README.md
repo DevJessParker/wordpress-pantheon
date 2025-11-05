@@ -13,23 +13,64 @@ A complete local development environment for WordPress on Pantheon, featuring da
 - **Security Tools** - Automated security scanning and best practices
 - **Developer Scripts** - Common tasks automated
 
-## 📋 Prerequisites
+## ⚡ Quickstart (Automated Setup)
+
+**The fastest way to get started!** Our automated setup scripts will install everything you need:
+
+### Windows (PowerShell)
+```powershell
+# Clone the repository
+git clone <your-repo-url>
+cd wordpress-pantheon
+
+# Run the quickstart script
+.\quickstart.ps1
+```
+
+### macOS/Linux
+```bash
+# Clone the repository
+git clone <your-repo-url>
+cd wordpress-pantheon
+
+# Run the quickstart script
+chmod +x quickstart.sh
+./quickstart.sh
+```
+
+The quickstart script will:
+- ✅ Check for required software (Git, Docker)
+- ✅ Install Lando automatically
+- ✅ Configure your environment with guided prompts
+- ✅ Authenticate with Pantheon
+- ✅ Start your local environment
+- ✅ Pull database and files from Pantheon Dev
+
+**That's it!** Your development environment will be ready in minutes.
+
+---
+
+## 📋 Prerequisites (Manual Setup)
+
+If you prefer manual setup or the quickstart script doesn't work:
 
 ### Required Software:
-1. **Lando** - [Install Lando](https://docs.lando.dev/getting-started/installation.html)
-   - Includes Docker Desktop automatically
-   - Supports macOS, Windows, and Linux
+1. **Docker Desktop** - [Install Docker](https://www.docker.com/products/docker-desktop)
+   - Required for Lando to work
+   - Must be running before starting Lando
 
 2. **Git** - [Install Git](https://git-scm.com/downloads)
 
-3. **Terminus** (installed automatically by Lando)
+3. **Lando** - [Install Lando](https://docs.lando.dev/getting-started/installation.html)
+   - Supports macOS, Windows, and Linux
+   - Terminus is installed automatically by Lando
 
 ### Pantheon Account:
 1. Sign up at [Pantheon.io](https://pantheon.io)
 2. Create a WordPress site
 3. Generate a machine token: https://dashboard.pantheon.io/users/#account/tokens
 
-## 🛠️ Quick Start
+## 🛠️ Manual Setup
 
 ### 1. Clone the Repository
 ```bash

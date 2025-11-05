@@ -2,12 +2,57 @@
 
 This guide will walk you through setting up your local WordPress development environment with Pantheon integration.
 
-## 📋 Prerequisites Checklist
+## ⚡ Quickstart (Recommended)
+
+**Want to skip manual setup?** Use our automated quickstart scripts!
+
+### Windows Users
+```powershell
+# Navigate to the project directory
+cd wordpress-pantheon
+
+# Run the quickstart script
+.\quickstart.ps1
+
+# For help
+.\quickstart.ps1 -Help
+```
+
+### macOS/Linux Users
+```bash
+# Navigate to the project directory
+cd wordpress-pantheon
+
+# Run the quickstart script
+./quickstart.sh
+
+# For help
+./quickstart.sh --help
+```
+
+The quickstart script handles everything automatically:
+- Checks for prerequisites
+- Installs Lando (if needed)
+- Configures your environment
+- Authenticates with Pantheon
+- Starts the development environment
+- Pulls your database and files
+
+**If the quickstart script works, you're done!** Skip to the [Next Steps](#-next-steps) section.
+
+---
+
+## 📋 Manual Setup Prerequisites
+
+If you prefer manual setup or the quickstart script doesn't work:
+
+### Prerequisites Checklist
 
 Before starting, ensure you have:
 
-- [ ] **Lando** installed ([Download](https://docs.lando.dev/getting-started/installation.html))
+- [ ] **Docker Desktop** installed and running ([Download](https://www.docker.com/products/docker-desktop))
 - [ ] **Git** installed ([Download](https://git-scm.com/downloads))
+- [ ] **Lando** installed ([Download](https://docs.lando.dev/getting-started/installation.html))
 - [ ] **Pantheon account** with a WordPress site created
 - [ ] **Terminus machine token** generated
 - [ ] **Basic terminal/command line knowledge**
