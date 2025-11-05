@@ -767,7 +767,10 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
         Write-ColorOutput "First attempt failed. Destroying and starting fresh (attempt $attempt/$maxAttempts)..." -Type Warning
         & lando poweroff 2>&1 | Out-Null
         Start-Sleep -Seconds 2
+        # Gracefully handle destroy warnings
+        $ErrorActionPreference = 'Continue'
         & lando destroy -y 2>&1 | Out-Null
+        $ErrorActionPreference = 'Stop'
         Start-Sleep -Seconds 2
         $ErrorActionPreference = 'Continue'
         $startOutput = & lando start 2>&1 | Tee-Object -Variable tempOutput | Out-String
@@ -777,7 +780,10 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
         Write-ColorOutput "Second attempt failed. Performing aggressive cleanup (attempt $attempt/$maxAttempts)..." -Type Warning
         & lando poweroff 2>&1 | Out-Null
         Start-Sleep -Seconds 2
+        # Gracefully handle destroy warnings
+        $ErrorActionPreference = 'Continue'
         & lando destroy -y 2>&1 | Out-Null
+        $ErrorActionPreference = 'Stop'
         Start-Sleep -Seconds 3
         Write-ColorOutput "Cleaning Docker system..." -Type Info
         & docker system prune -f 2>&1 | Out-Null

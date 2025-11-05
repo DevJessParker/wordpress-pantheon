@@ -756,6 +756,7 @@ for attempt in $(seq 1 $MAX_ATTEMPTS); do
         print_warning "First attempt failed. Destroying and starting fresh (attempt $attempt/$MAX_ATTEMPTS)..."
         lando poweroff >/dev/null 2>&1
         sleep 2
+        # Gracefully handle destroy warnings (stderr silenced)
         lando destroy -y >/dev/null 2>&1
         sleep 2
         lando start
@@ -763,6 +764,7 @@ for attempt in $(seq 1 $MAX_ATTEMPTS); do
         print_warning "Second attempt failed. Performing aggressive cleanup (attempt $attempt/$MAX_ATTEMPTS)..."
         lando poweroff >/dev/null 2>&1
         sleep 2
+        # Gracefully handle destroy warnings (stderr silenced)
         lando destroy -y >/dev/null 2>&1
         sleep 3
         print_info "Cleaning Docker system..."
