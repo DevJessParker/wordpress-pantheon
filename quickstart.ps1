@@ -343,13 +343,22 @@ if (-not $SkipLandoInstall) {
                     if (Test-Path "$installDir\lando.exe") {
                         Write-ColorOutput "Lando executable found at: $installDir" -Type Success
 
-                        # Add to PATH for current session if not already there
-                        if ($env:Path -notlike "*$installDir*") {
-                            Write-ColorOutput "Adding $installDir to PATH for current session..." -Type Info
-                            $env:Path = "$installDir;$env:Path"  # Add to beginning for priority
+                        # Explicitly add to system PATH if not already there
+                        $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+                        if ($machinePath -notlike "*$installDir*") {
+                            try {
+                                Write-ColorOutput "Adding $installDir to system PATH..." -Type Info
+                                [Environment]::SetEnvironmentVariable("Path", "$machinePath;$installDir", "Machine")
+                                Write-ColorOutput "Successfully added to system PATH (will persist in new sessions)" -Type Success
+                            } catch {
+                                Write-ColorOutput "Could not update system PATH (may need Administrator privileges)" -Type Warning
+                                Write-ColorOutput "You can add manually later: System Properties -> Environment Variables" -Type Info
+                            }
+                        } else {
+                            Write-ColorOutput "Already in system PATH" -Type Success
                         }
 
-                        # Refresh environment variables more thoroughly
+                        # Refresh environment variables for current session
                         $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
                         if ($env:Path -notlike "*$installDir*") {
                             $env:Path = "$installDir;$env:Path"
@@ -407,11 +416,15 @@ if (-not $SkipLandoInstall) {
                                 # Continue with script
                             } else {
                                 Write-ColorOutput "" -Type Info
-                                Write-ColorOutput "Option 2: Manual verification steps:" -Type Info
-                                Write-ColorOutput "  1. Close this PowerShell window" -Type Info
-                                Write-ColorOutput "  2. Open a new PowerShell window" -Type Info
-                                Write-ColorOutput "  3. Run: lando version" -Type Info
-                                Write-ColorOutput "  4. If that works, run: .\quickstart.ps1 -SkipLandoInstall" -Type Info
+                                Write-ColorOutput "Option 2: Manual verification and PATH setup:" -Type Info
+                                Write-ColorOutput "  1. Verify installation:" -Type Info
+                                Write-ColorOutput "     Test-Path '$installDir\lando.exe'" -Type Info
+                                Write-ColorOutput "  2. Add to PATH (run as Administrator):" -Type Info
+                                Write-ColorOutput "     `$path = [Environment]::GetEnvironmentVariable('Path', 'Machine')" -Type Info
+                                Write-ColorOutput "     [Environment]::SetEnvironmentVariable('Path', `"`$path;$installDir`", 'Machine')" -Type Info
+                                Write-ColorOutput "  3. Open a NEW PowerShell window" -Type Info
+                                Write-ColorOutput "  4. Run: lando version" -Type Info
+                                Write-ColorOutput "  5. If that works, run: .\quickstart.ps1 -SkipLandoInstall" -Type Info
                                 exit 0
                             }
                         }
