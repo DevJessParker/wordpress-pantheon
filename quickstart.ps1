@@ -730,11 +730,15 @@ $landoStarted = $false
 $maxAttempts = 3
 
 for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+    # Capture output to check for errors
+    $startOutput = ""
+
     if ($attempt -eq 1) {
         Write-ColorOutput "Starting Lando (attempt $attempt/$maxAttempts)..." -Type Info
-        # Temporarily allow non-terminating errors so Docker Compose stderr doesn't stop execution
+        # Capture output while also displaying it
         $ErrorActionPreference = 'Continue'
-        & lando start 2>&1 | Out-Host
+        $startOutput = & lando start 2>&1 | Tee-Object -Variable tempOutput | Out-String
+        $startOutput = $tempOutput -join "`n"
         $ErrorActionPreference = 'Stop'
     } elseif ($attempt -eq 2) {
         Write-ColorOutput "First attempt failed. Destroying and starting fresh (attempt $attempt/$maxAttempts)..." -Type Warning
@@ -743,7 +747,8 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
         & lando destroy -y 2>&1 | Out-Null
         Start-Sleep -Seconds 2
         $ErrorActionPreference = 'Continue'
-        & lando start 2>&1 | Out-Host
+        $startOutput = & lando start 2>&1 | Tee-Object -Variable tempOutput | Out-String
+        $startOutput = $tempOutput -join "`n"
         $ErrorActionPreference = 'Stop'
     } else {
         Write-ColorOutput "Second attempt failed. Performing aggressive cleanup (attempt $attempt/$maxAttempts)..." -Type Warning
@@ -755,22 +760,56 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
         & docker system prune -f 2>&1 | Out-Null
         Start-Sleep -Seconds 2
         $ErrorActionPreference = 'Continue'
-        & lando start 2>&1 | Out-Host
+        $startOutput = & lando start 2>&1 | Tee-Object -Variable tempOutput | Out-String
+        $startOutput = $tempOutput -join "`n"
         $ErrorActionPreference = 'Stop'
     }
 
-    # Always verify containers are actually running, regardless of exit codes or exceptions
+    # Check for critical errors in the output
+    $hasErrors = $false
+    if ($startOutput -match "Error response from daemon|manifest.*not found|ERROR ==>|Error$") {
+        Write-ColorOutput "Detected errors in Lando startup output" -Type Warning
+        $hasErrors = $true
+    }
+
+    # Verify containers are actually running and healthy
     Start-Sleep -Seconds 5
     Write-ColorOutput "Verifying containers are running..." -Type Info
 
     try {
         $landoInfo = & lando info --format json 2>&1 | Out-String
+        $containersHealthy = $false
 
         if ($LASTEXITCODE -eq 0 -and $landoInfo -match '\[' -and $landoInfo -notmatch '"service":\s*\[\s*\]') {
+            # Parse JSON to check for running services
+            try {
+                $landoData = $landoInfo | ConvertFrom-Json
+                if ($landoData -and $landoData.Count -gt 0) {
+                    # Check if services exist and are not in error state
+                    $serviceCount = 0
+                    foreach ($service in $landoData) {
+                        if ($service.service) {
+                            $serviceCount++
+                        }
+                    }
+
+                    if ($serviceCount -gt 0 -and -not $hasErrors) {
+                        $containersHealthy = $true
+                    }
+                }
+            } catch {
+                Write-ColorOutput "Could not parse lando info JSON" -Type Warning
+            }
+        }
+
+        if ($containersHealthy) {
             Write-ColorOutput "Lando started successfully!" -Type Success
             $landoStarted = $true
             break
         } else {
+            if ($hasErrors) {
+                Write-ColorOutput "Startup completed but with errors - containers may not be healthy" -Type Warning
+            }
             if ($attempt -lt $maxAttempts) {
                 Write-ColorOutput "Containers not running properly, will retry with more aggressive cleanup..." -Type Warning
                 Start-Sleep -Seconds 2
