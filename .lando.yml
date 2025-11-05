@@ -11,6 +11,12 @@ services:
       - apt-get update -y
       - apt-get install -y vim wget
     build:
+      # Clean up any partial/failed Composer installations
+      - >
+        if [ -d "vendor" ] && [ ! -f "vendor/autoload.php" ]; then
+          echo "Cleaning up partial Composer installation...";
+          rm -rf vendor/;
+        fi
       # Only install Composer dependencies if vendor/ doesn't exist
       # This speeds up subsequent Lando starts significantly
       - >

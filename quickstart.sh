@@ -653,12 +653,48 @@ fi
 
 print_header "Step 4: Starting Lando Environment"
 
+# Clean up any partial Composer installations before starting
+if [ -d "vendor" ] && [ ! -f "vendor/autoload.php" ]; then
+    print_info "Cleaning up partial Composer installation..."
+    rm -rf vendor/
+fi
+
 print_info "Starting Lando... (this may take several minutes on first run)"
-if lando start; then
-    print_success "Lando started successfully!"
-else
-    print_error "Failed to start Lando"
-    print_info "Check the error messages above and try running 'lando start' manually"
+
+LANDO_STARTED=false
+MAX_ATTEMPTS=2
+
+for attempt in $(seq 1 $MAX_ATTEMPTS); do
+    if [ $attempt -eq 1 ]; then
+        print_info "Starting Lando (attempt $attempt/$MAX_ATTEMPTS)..."
+        if lando start; then
+            print_success "Lando started successfully!"
+            LANDO_STARTED=true
+            break
+        else
+            if [ $attempt -lt $MAX_ATTEMPTS ]; then
+                print_warning "First attempt failed, will try rebuilding..."
+                sleep 3
+            fi
+        fi
+    else
+        print_info "Rebuilding Lando (attempt $attempt/$MAX_ATTEMPTS)..."
+        if lando rebuild -y; then
+            print_success "Lando rebuilt successfully!"
+            LANDO_STARTED=true
+            break
+        fi
+    fi
+done
+
+if [ "$LANDO_STARTED" = false ]; then
+    print_error "Failed to start Lando after $MAX_ATTEMPTS attempts"
+    echo ""
+    print_info "Troubleshooting steps:"
+    print_info "  1. Make sure Docker Desktop is running"
+    print_info "  2. Try manually: lando destroy && lando start"
+    print_info "  3. Check logs: lando logs"
+    print_info "  4. Update Lando: Visit https://docs.lando.dev/getting-started/installation.html"
     exit 1
 fi
 

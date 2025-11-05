@@ -649,17 +649,54 @@ if (Test-Path ".env") {
 
 Write-ColorOutput "Step 4: Starting Lando Environment" -Type Header
 
+# Clean up any partial Composer installations before starting
+if ((Test-Path "vendor") -and (-not (Test-Path "vendor/autoload.php"))) {
+    Write-ColorOutput "Cleaning up partial Composer installation..." -Type Info
+    Remove-Item -Recurse -Force vendor -ErrorAction SilentlyContinue
+}
+
 Write-ColorOutput "Starting Lando... (this may take several minutes on first run)" -Type Info
-try {
-    & lando start
-    if ($LASTEXITCODE -eq 0) {
-        Write-ColorOutput "Lando started successfully!" -Type Success
-    } else {
-        throw "Lando start failed with exit code $LASTEXITCODE"
+
+$landoStarted = $false
+$maxAttempts = 2
+
+for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+    try {
+        if ($attempt -eq 1) {
+            Write-ColorOutput "Starting Lando (attempt $attempt/$maxAttempts)..." -Type Info
+            & lando start 2>&1 | Out-Host
+        } else {
+            Write-ColorOutput "Rebuilding Lando (attempt $attempt/$maxAttempts)..." -Type Info
+            & lando rebuild -y 2>&1 | Out-Host
+        }
+
+        if ($LASTEXITCODE -eq 0) {
+            Write-ColorOutput "Lando started successfully!" -Type Success
+            $landoStarted = $true
+            break
+        } else {
+            if ($attempt -lt $maxAttempts) {
+                Write-ColorOutput "First attempt failed, will try rebuilding..." -Type Warning
+                Start-Sleep -Seconds 3
+            }
+        }
+    } catch {
+        if ($attempt -lt $maxAttempts) {
+            Write-ColorOutput "Attempt $attempt failed: $_" -Type Warning
+            Write-ColorOutput "Will try rebuilding..." -Type Info
+            Start-Sleep -Seconds 3
+        }
     }
-} catch {
-    Write-ColorOutput "Failed to start Lando: $_" -Type Error
-    Write-ColorOutput "Check the error messages above and try running 'lando start' manually" -Type Info
+}
+
+if (-not $landoStarted) {
+    Write-ColorOutput "Failed to start Lando after $maxAttempts attempts" -Type Error
+    Write-ColorOutput "" -Type Info
+    Write-ColorOutput "Troubleshooting steps:" -Type Info
+    Write-ColorOutput "  1. Make sure Docker Desktop is running" -Type Info
+    Write-ColorOutput "  2. Try manually: lando destroy && lando start" -Type Info
+    Write-ColorOutput "  3. Check logs: lando logs" -Type Info
+    Write-ColorOutput "  4. Update Lando: Visit https://docs.lando.dev/getting-started/installation.html" -Type Info
     exit 1
 }
 
