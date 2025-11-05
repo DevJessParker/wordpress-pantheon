@@ -7,6 +7,7 @@
 [CmdletBinding()]
 param(
     [switch]$SkipLandoInstall,
+    [string]$LandoInstallPath = "",
     [switch]$Help
 )
 
@@ -50,8 +51,16 @@ WordPress + Pantheon Quickstart Setup
 Usage: .\quickstart.ps1 [options]
 
 Options:
-  -SkipLandoInstall    Skip Lando installation check/install
-  -Help                Show this help message
+  -SkipLandoInstall           Skip Lando installation check/install
+  -LandoInstallPath <path>    Custom installation path for Lando
+                              Default (Admin): C:\Program Files\Lando
+                              Default (User):  %LOCALAPPDATA%\Programs\Lando
+  -Help                       Show this help message
+
+Examples:
+  .\quickstart.ps1
+  .\quickstart.ps1 -LandoInstallPath "D:\Tools\Lando"
+  .\quickstart.ps1 -SkipLandoInstall
 
 This script will:
   1. Check for prerequisites (Git, Docker Desktop)
@@ -252,15 +261,35 @@ if (-not $SkipLandoInstall) {
                 Write-ColorOutput "Installing Lando silently... (this may take a few minutes)" -Type Info
 
                 # Determine installation directory
-                $installDir = "C:\Program Files\Lando"
+                if ($LandoInstallPath -ne "") {
+                    # User specified custom path
+                    $installDir = $LandoInstallPath
+                    Write-ColorOutput "Using custom installation path: $installDir" -Type Info
 
-                # Check if path is writable, otherwise use user profile
-                $testPath = "C:\Program Files"
-                if (-not (Test-Path $testPath) -or -not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-                    $installDir = "${env:LOCALAPPDATA}\Programs\Lando"
-                    Write-ColorOutput "Installing to user directory (no admin rights): $installDir" -Type Info
+                    # Validate custom path
+                    $parentDir = Split-Path $installDir -Parent
+                    if (-not (Test-Path $parentDir)) {
+                        try {
+                            New-Item -ItemType Directory -Path $parentDir -Force -ErrorAction Stop | Out-Null
+                            Write-ColorOutput "Created parent directory: $parentDir" -Type Success
+                        } catch {
+                            Write-ColorOutput "Cannot create directory: $parentDir" -Type Error
+                            Write-ColorOutput "Error: $_" -Type Error
+                            Write-ColorOutput "Please use a different path or run as Administrator" -Type Info
+                            exit 1
+                        }
+                    }
                 } else {
-                    Write-ColorOutput "Installing to: $installDir" -Type Info
+                    # Use default paths based on privileges
+                    $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+                    if ($isAdmin) {
+                        $installDir = "C:\Program Files\Lando"
+                        Write-ColorOutput "Installing to system directory (admin mode): $installDir" -Type Info
+                    } else {
+                        $installDir = "${env:LOCALAPPDATA}\Programs\Lando"
+                        Write-ColorOutput "Installing to user directory (no admin rights): $installDir" -Type Info
+                    }
                 }
 
                 # Create installation directory if it doesn't exist

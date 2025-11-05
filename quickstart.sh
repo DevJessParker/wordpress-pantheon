@@ -49,12 +49,17 @@ print_header() {
 
 # Parse arguments
 SKIP_LANDO_INSTALL=false
+LANDO_INSTALL_PATH=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --skip-lando-install)
             SKIP_LANDO_INSTALL=true
             shift
+            ;;
+        --lando-install-path)
+            LANDO_INSTALL_PATH="$2"
+            shift 2
             ;;
         --help|-h)
             cat <<EOF
@@ -63,8 +68,16 @@ WordPress + Pantheon Quickstart Setup
 Usage: ./quickstart.sh [options]
 
 Options:
-  --skip-lando-install    Skip Lando installation check/install
-  --help, -h              Show this help message
+  --skip-lando-install           Skip Lando installation check/install
+  --lando-install-path <path>    Custom installation path for Lando
+                                 Default (macOS): /Applications/Lando.app/Contents/Resources
+                                 Default (Linux): /usr/local/bin
+  --help, -h                     Show this help message
+
+Examples:
+  ./quickstart.sh
+  ./quickstart.sh --lando-install-path "/opt/lando"
+  ./quickstart.sh --skip-lando-install
 
 This script will:
   1. Check for prerequisites (Git, Docker)
@@ -243,32 +256,66 @@ if [ "$SKIP_LANDO_INSTALL" = false ]; then
                     print_info "Mounting installer..."
                     hdiutil attach "$INSTALLER_PATH" -nobrowse -quiet
 
-                    print_info "Installing Lando (requires sudo)..."
-                    sudo cp -R /Volumes/Lando/Lando.app /Applications/ || {
-                        print_error "Failed to install Lando"
-                        hdiutil detach /Volumes/Lando -quiet 2>/dev/null || true
-                        rm -f "$INSTALLER_PATH"
-                        exit 1
-                    }
+                    # Determine installation location
+                    if [ -n "$LANDO_INSTALL_PATH" ]; then
+                        INSTALL_DIR="$LANDO_INSTALL_PATH"
+                        print_info "Using custom installation path: $INSTALL_DIR"
+
+                        # Validate custom path
+                        if [ ! -d "$INSTALL_DIR" ]; then
+                            print_info "Creating installation directory..."
+                            mkdir -p "$INSTALL_DIR" 2>/dev/null || {
+                                print_error "Cannot create directory: $INSTALL_DIR"
+                                print_info "Please use a different path or run with sudo"
+                                hdiutil detach /Volumes/Lando -quiet 2>/dev/null || true
+                                rm -f "$INSTALLER_PATH"
+                                exit 1
+                            }
+                        fi
+
+                        print_info "Installing Lando to custom path..."
+                        cp -R /Volumes/Lando/Lando.app "$INSTALL_DIR/" || {
+                            print_error "Failed to install Lando"
+                            hdiutil detach /Volumes/Lando -quiet 2>/dev/null || true
+                            rm -f "$INSTALLER_PATH"
+                            exit 1
+                        }
+
+                        LANDO_BIN_PATH="$INSTALL_DIR/Lando.app/Contents/Resources"
+                    else
+                        # Default: Install to /Applications
+                        INSTALL_DIR="/Applications"
+                        print_info "Installing Lando to default location (requires sudo)..."
+                        sudo cp -R /Volumes/Lando/Lando.app /Applications/ || {
+                            print_error "Failed to install Lando"
+                            hdiutil detach /Volumes/Lando -quiet 2>/dev/null || true
+                            rm -f "$INSTALLER_PATH"
+                            exit 1
+                        }
+
+                        LANDO_BIN_PATH="/Applications/Lando.app/Contents/Resources"
+                    fi
 
                     print_info "Cleaning up..."
                     hdiutil detach /Volumes/Lando -quiet || true
                     rm -f "$INSTALLER_PATH"
 
                     # Add to PATH for current session
-                    export PATH="/Applications/Lando.app/Contents/Resources:$PATH"
+                    export PATH="$LANDO_BIN_PATH:$PATH"
+                    print_success "Added to PATH: $LANDO_BIN_PATH"
 
                     # Add to shell profile
                     for PROFILE in "$HOME/.bash_profile" "$HOME/.zshrc" "$HOME/.bashrc"; do
                         if [ -f "$PROFILE" ]; then
-                            if ! grep -q "Lando.app/Contents/Resources" "$PROFILE" 2>/dev/null; then
-                                echo 'export PATH="/Applications/Lando.app/Contents/Resources:$PATH"' >> "$PROFILE"
+                            if ! grep -q "$LANDO_BIN_PATH" "$PROFILE" 2>/dev/null; then
+                                echo "export PATH=\"$LANDO_BIN_PATH:\$PATH\"" >> "$PROFILE"
+                                print_info "Added to profile: $PROFILE"
                             fi
                         fi
                     done
 
-                    print_success "Lando installed successfully"
-                    print_warning "You may need to restart your terminal for PATH changes to take effect"
+                    print_success "Lando installed successfully at: $INSTALL_DIR"
+                    print_info "Lando binary path: $LANDO_BIN_PATH"
                 fi
             fi
         else
