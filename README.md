@@ -474,7 +474,7 @@ lando pull-db
 
 #### "Terminus keeps asking for my machine token"
 
-**Cause**: The `TERMINUS_TOKEN` in your `.env` file is missing, invalid, or not being loaded correctly.
+**Cause**: The `TERMINUS_TOKEN` in your `.env` file is missing, invalid, has Windows line endings (CRLF), or not being loaded correctly.
 
 **Symptoms**:
 ```
@@ -491,26 +491,44 @@ ERROR ==> POST request to authorize/machine-token failed with code 400
    # Should show: TERMINUS_TOKEN=your-actual-token-here
    ```
 
-2. **Get a new machine token if needed**:
+2. **Windows Users: Fix line endings** (MOST COMMON ISSUE):
+   ```powershell
+   # Remove Windows carriage returns (CRLF → LF)
+   (Get-Content .env -Raw) -replace "`r`n", "`n" | Set-Content .env -NoNewline
+
+   # Verify it's fixed - should NOT see "13" at the end
+   (Get-Content .env -Raw).Split("`n") | ForEach-Object {
+       if ($_ -match "TERMINUS_TOKEN") {
+           $_.ToCharArray() | ForEach-Object { [int][char]$_ }
+       }
+   }
+   ```
+
+   **Why this happens**: Windows text editors add carriage return characters (`\r`) that break the token. Your token becomes `abc123\r` instead of `abc123`, making it invalid.
+
+3. **Get a new machine token if needed**:
    - Visit: https://dashboard.pantheon.io/personal-settings/machine-tokens
    - Click "Create Token"
    - Copy the token
    - Update `.env` with: `TERMINUS_TOKEN=your-new-token`
 
-3. **Verify token format**:
+4. **Verify token format**:
    - Token should be a long alphanumeric string
    - No quotes or spaces around the token
    - No extra characters or line breaks
    - Example: `TERMINUS_TOKEN=abc123xyz789def456...`
 
-4. **Re-run setup**:
+5. **Re-run setup**:
    ```bash
    sudo ./quickstart.sh
    ```
 
-**Why this happens**: The quickstart script and `lando pull` command read `TERMINUS_TOKEN` from your `.env` file. If the file doesn't exist, the token is invalid, or there's a formatting issue, you'll be prompted interactively.
+**Why this happens**: The quickstart script and `lando pull` command read `TERMINUS_TOKEN` from your `.env` file. Windows line endings (CRLF) add invisible carriage return characters that break authentication. The script now automatically strips these, but it's best to fix your `.env` file.
 
-**Prevention**: Always ensure your `.env` file is properly configured with a valid token before running setup.
+**Prevention**:
+- Use an editor that supports Unix line endings (VS Code, Notepad++, etc.)
+- Configure Git to preserve line endings: `git config --global core.autocrlf input`
+- Or use the PowerShell command above to fix existing files
 
 #### "I see a 404 error when I visit the site"
 

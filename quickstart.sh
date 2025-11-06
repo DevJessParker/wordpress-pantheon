@@ -805,6 +805,12 @@ if [ -f ".env" ]; then
     source .env
     set +a
 
+    # Strip any trailing whitespace, carriage returns, or newlines from variables
+    # This handles Windows line endings (CRLF) that can cause issues
+    PANTHEON_SITE=$(echo "$PANTHEON_SITE" | tr -d '\r\n' | xargs)
+    PANTHEON_SITE_ID=$(echo "$PANTHEON_SITE_ID" | tr -d '\r\n' | xargs)
+    TERMINUS_TOKEN=$(echo "$TERMINUS_TOKEN" | tr -d '\r\n' | xargs)
+
     # Update .lando.yml (local file, gitignored)
     if [[ "$OS" == "macos" ]]; then
         sed -i '' "s|site: YOUR_PANTHEON_SITE_NAME|site: $PANTHEON_SITE|" .lando.yml
@@ -1083,11 +1089,25 @@ set -a
 source .env
 set +a
 
+# Strip any trailing whitespace, carriage returns, or newlines from the token
+# This handles Windows line endings (CRLF) that can break authentication
+TERMINUS_TOKEN=$(echo "$TERMINUS_TOKEN" | tr -d '\r\n' | xargs)
+
 # Validate token is present
 if [ -z "$TERMINUS_TOKEN" ]; then
     print_error "TERMINUS_TOKEN not found in .env file"
     print_info "Please check your .env file contains: TERMINUS_TOKEN=your-machine-token"
     print_info "Get your token at: https://dashboard.pantheon.io/personal-settings/machine-tokens"
+    exit 1
+fi
+
+# Validate token format (should be alphanumeric with hyphens/underscores)
+if ! echo "$TERMINUS_TOKEN" | grep -qE '^[A-Za-z0-9_-]{40,}$'; then
+    print_error "TERMINUS_TOKEN appears to be invalid"
+    print_info "Token should be 40+ alphanumeric characters with hyphens/underscores"
+    print_info "Current token length: ${#TERMINUS_TOKEN} characters"
+    print_info "Check for extra spaces, quotes, or special characters in your .env file"
+    print_info "Get a new token at: https://dashboard.pantheon.io/personal-settings/machine-tokens"
     exit 1
 fi
 
