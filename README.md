@@ -49,20 +49,40 @@ Before running the quickstart script, make sure you have:
 
 ### Team Quickstart
 
-#### Windows (PowerShell as Administrator)
+#### Windows Users - Choose Your Path
+
+**Option 1: PowerShell (Easier for Windows users)**
 ```powershell
 # 1. Clone the repository
 git clone <your-repo-url>
 cd wordpress-pantheon
 
-# 2. Run the quickstart script (as Administrator!)
+# 2. Run the PowerShell quickstart script
+# NOTE: Does NOT require Administrator - Lando install is separate
 .\quickstart.ps1
 ```
 
+**Option 2: WSL2 + Bash (5-10x Faster Performance!)**
+```powershell
+# 1. Open WSL2 (Ubuntu)
+wsl
+
+# 2. Clone in Linux filesystem (much faster!)
+cd ~
+git clone <your-repo-url>
+cd wordpress-pantheon
+
+# 3. Run bash script (requires sudo)
+chmod +x quickstart.sh
+sudo ./quickstart.sh
+```
+
+**Why WSL2 is faster:** Docker on Windows runs in WSL2. When files are on C: drive (NTFS), Docker translates through a filesystem layer. When files are in WSL2 (ext4), it's native Linux and **5-10x faster**!
+
 **When prompted, provide:**
-- Site Name: `intelliguard1`
-- Site UUID: Paste the full URL from Pantheon Dashboard (e.g., `https://dashboard.pantheon.io/sites/<uuid>#dev/code`)
-- Machine Token: Paste your token from the link above
+- Site Name: `your-site-name`
+- Site UUID: Paste from Pantheon Dashboard (e.g., `https://dashboard.pantheon.io/sites/<uuid>`)
+- Machine Token: Paste your token
 
 #### macOS/Linux
 ```bash

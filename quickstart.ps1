@@ -1,1415 +1,225 @@
-# WordPress + Pantheon Quickstart Setup Script (Windows)
-# This script automates the installation and configuration process
-# Requires: PowerShell 5.1 or higher
-
 #Requires -Version 5.1
+
+<#
+.SYNOPSIS
+    WordPress + Pantheon Quickstart Setup Script for Windows
+.DESCRIPTION
+    Automates the installation and configuration process for Windows developers.
+    NOTE: This script does NOT require Administrator privileges.
+          Lando installation (if needed) will be handled separately.
+.PARAMETER SkipLandoInstall
+    Skip Lando installation check
+.PARAMETER Force
+    Force full rebuild (destroy existing containers)
+.EXAMPLE
+    .\quickstart.ps1
+#>
 
 [CmdletBinding()]
 param(
     [switch]$SkipLandoInstall,
-    [string]$LandoInstallPath = "",
-    [switch]$Force,
-    [switch]$QuickStart,
-    [switch]$Help
+    [switch]$Force
 )
 
-$ErrorActionPreference = "Stop"
-$ProgressPreference = "SilentlyContinue"
+Write-Host "========================================" -ForegroundColor Magenta
+Write-Host "WordPress + Pantheon Quickstart (Windows)" -ForegroundColor Magenta
+Write-Host "========================================" -ForegroundColor Magenta
+Write-Host ""
 
-# Helper function to extract UUID from various input formats
-function Extract-PantheonUUID {
-    param(
-        [string]$UserInput
-    )
+Write-Host "[INFO] NOTE: This script does NOT require Administrator privileges" -ForegroundColor Cyan
+Write-Host "[INFO] If Lando is not installed, you'll need to install it manually" -ForegroundColor Cyan
+Write-Host ""
 
-    # Remove whitespace
-    $UserInput = $UserInput.Trim()
+# Check prerequisites
+Write-Host "[INFO] Checking prerequisites..." -ForegroundColor Cyan
 
-    # UUID regex pattern (8-4-4-4-12 format)
-    $uuidPattern = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
-
-    # Extract UUID from input
-    if ($UserInput -match $uuidPattern) {
-        $uuid = $matches[0]
-
-        # Check if input contains environment references
-        if ($UserInput -match '#(test|live)' -or $UserInput -match '/(test|live)') {
-            Write-ColorOutput "WARNING: This tool only works with DEV environment" -Type Warning
-            Write-ColorOutput "Test and Live environments are not supported for local development" -Type Warning
-            Write-ColorOutput "The UUID will be used with the dev environment only" -Type Info
-        }
-
-        return $uuid.ToLower()
-    } else {
-        Write-ColorOutput "Invalid UUID format" -Type Error
-        Write-ColorOutput "Expected format: <uuid>" -Type Info
-        Write-ColorOutput "" -Type Info
-        Write-ColorOutput "You can paste:" -Type Info
-        Write-ColorOutput "  - Just the UUID: <uuid>" -Type Info
-        Write-ColorOutput "  - With fragment: <uuid>#dev/code" -Type Info
-        Write-ColorOutput "  - Full URL: https://dashboard.pantheon.io/sites/<uuid>" -Type Info
-        return $null
-    }
-}
-
-# Helper functions for colored output
-function Write-ColorOutput {
-    param(
-        [string]$Message,
-        [string]$Type = "Info"
-    )
-
-    switch ($Type) {
-        "Success" {
-            Write-Host "[OK] $Message" -ForegroundColor Green
-        }
-        "Info" {
-            Write-Host "[INFO] $Message" -ForegroundColor Cyan
-        }
-        "Warning" {
-            Write-Host "[WARN] $Message" -ForegroundColor Yellow
-        }
-        "Error" {
-            Write-Host "[ERROR] $Message" -ForegroundColor Red
-        }
-        "Header" {
-            Write-Host ""
-            Write-Host "========================================" -ForegroundColor Magenta
-            Write-Host $Message -ForegroundColor Magenta
-            Write-Host "========================================" -ForegroundColor Magenta
-            Write-Host ""
-        }
-    }
-}
-
-# Helper function to get SHA256 hash of a file
-function Get-FileHashSHA256 {
-    param(
-        [string]$FilePath
-    )
-
-    if (-not (Test-Path $FilePath)) {
-        return $null
-    }
-
-    try {
-        $hash = Get-FileHash -Path $FilePath -Algorithm SHA256
-        return $hash.Hash
-    } catch {
-        return $null
-    }
-}
-
-# Helper function to read build info
-function Get-LandoBuildInfo {
-    $buildInfoPath = ".lando-build-info"
-
-    if (-not (Test-Path $buildInfoPath)) {
-        return $null
-    }
-
-    try {
-        $content = Get-Content -Path $buildInfoPath -Raw | ConvertFrom-Json
-        return $content
-    } catch {
-        return $null
-    }
-}
-
-# Helper function to write build info
-function Set-LandoBuildInfo {
-    param(
-        [string]$LandoYmlHash,
-        [string]$ContainerState
-    )
-
-    $buildInfo = @{
-        lastBuildTime = (Get-Date).ToUniversalTime().ToString("o")
-        landoYmlHash = $LandoYmlHash
-        lastSuccessfulStart = (Get-Date).ToUniversalTime().ToString("o")
-        containerState = $ContainerState
-    }
-
-    try {
-        $buildInfo | ConvertTo-Json | Set-Content -Path ".lando-build-info"
-    } catch {
-        Write-ColorOutput "Warning: Could not write build info" -Type Warning
-    }
-}
-
-# Helper function to check container state
-function Test-ContainerState {
-    try {
-        $ErrorActionPreference = 'Continue'
-        $landoInfo = & lando info --format json 2>&1 | Out-String
-        $ErrorActionPreference = 'Stop'
-
-        # Check if lando info returned valid JSON with services
-        if ($landoInfo -match '\[' -and $landoInfo -notmatch '"service":\s*\[\s*\]') {
-            # Containers exist, check if running
-            $ErrorActionPreference = 'Continue'
-            $containerList = & lando list --format json 2>&1 | Out-String
-            $ErrorActionPreference = 'Stop'
-
-            if ($containerList -match 'wordpress-pantheon' -and $containerList -match '"running"\s*:\s*"true"') {
-                return "running"
-            } else {
-                return "stopped"
-            }
-        } else {
-            return "missing"
-        }
-    } catch {
-        return "missing"
-    }
-}
-
-if ($Help) {
-    Write-Host @"
-WordPress + Pantheon Quickstart Setup
-
-Usage: .\quickstart.ps1 [options]
-
-IMPORTANT: This script MUST be run as Administrator
-
-Options:
-  -SkipLandoInstall           Skip Lando installation check/install
-  -LandoInstallPath <path>    Custom installation path for Lando
-                              Default: C:\Program Files\Lando
-  -Force                      Force full rebuild (destroy existing containers)
-  -QuickStart                 Skip container rebuild if possible (fastest startup)
-  -Help                       Show this help message
-
-Container Orchestration:
-  By default, the script intelligently detects if containers need to be rebuilt:
-  - First run: Full build (3-5 minutes)
-  - Config unchanged + containers exist: Fast restart (30 seconds)
-  - Config changed: Full rebuild
-
-  Use -Force to always do a full rebuild (useful if containers are corrupted)
-  Use -QuickStart to skip rebuild checks entirely (fastest, assumes healthy containers)
-
-Examples:
-  Right-click PowerShell -> Run as Administrator, then:
-
-  .\quickstart.ps1
-  .\quickstart.ps1 -LandoInstallPath "D:\Tools\Lando"
-  .\quickstart.ps1 -SkipLandoInstall
-
-This script will:
-  1. Check for prerequisites (Git, Docker Desktop)
-  2. Install Lando (if not present)
-  3. Configure environment variables
-  4. Set up Lando configuration
-  5. Authenticate with Terminus
-  6. Start the development environment
-  7. Pull database and files from Pantheon
-
-Requirements:
-  - Windows 10/11
-  - Administrator privileges (REQUIRED)
-  - PowerShell 5.1 or higher
-  - Internet connection
-  - Pantheon account with machine token
-
-"@
-    exit 0
-}
-
-Write-ColorOutput "WordPress + Pantheon Quickstart Setup" -Type Header
-
-# Check PowerShell version
-$psVersion = $PSVersionTable.PSVersion
-Write-ColorOutput "PowerShell Version: $($psVersion.Major).$($psVersion.Minor)" -Type Info
-
-if ($psVersion.Major -lt 5) {
-    Write-ColorOutput "PowerShell 5.1 or higher is required. Please upgrade PowerShell." -Type Error
-    Write-ColorOutput "Download from: https://aka.ms/powershell" -Type Info
-    exit 1
-}
-
-##############################################################################
-# 1. Check Prerequisites
-##############################################################################
-
-Write-ColorOutput "Step 1: Checking Prerequisites" -Type Header
-
-# Check if running as administrator (REQUIRED)
-$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdmin) {
-    Write-ColorOutput "ERROR: This script requires Administrator privileges" -Type Error
-    Write-ColorOutput "" -Type Info
-    Write-ColorOutput "Please run PowerShell as Administrator:" -Type Info
-    Write-ColorOutput "  1. Close this window" -Type Info
-    Write-ColorOutput "  2. Right-click PowerShell" -Type Info
-    Write-ColorOutput "  3. Select 'Run as Administrator'" -Type Info
-    Write-ColorOutput "  4. Run the script again: .\quickstart.ps1" -Type Info
+# Check Lando
+if (-not (Get-Command lando -ErrorAction SilentlyContinue)) {
+    Write-Host "[ERROR] Lando is not installed!" -ForegroundColor Red
     Write-Host ""
-    Write-Host "Press any key to exit..." -NoNewline
-    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    Write-Host "To install Lando:" -ForegroundColor Yellow
+    Write-Host "  1. Download from: https://github.com/lando/lando/releases/latest" -ForegroundColor Yellow
+    Write-Host "  2. Get the file: lando-x64-stable.exe" -ForegroundColor Yellow
+    Write-Host "  3. Run the installer (requires Admin)" -ForegroundColor Yellow
+    Write-Host "  4. Restart PowerShell" -ForegroundColor Yellow
+    Write-Host "  5. Run this script again" -ForegroundColor Yellow
+    Write-Host ""
     exit 1
 }
 
-# Check Git
-Write-ColorOutput "Checking for Git..." -Type Info
+Write-Host "[OK] Lando is installed" -ForegroundColor Green
+
+# Check Docker
+if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+    Write-Host "[ERROR] Docker is not installed!" -ForegroundColor Red
+    Write-Host "Install from: https://www.docker.com/products/docker-desktop" -ForegroundColor Yellow
+    exit 1
+}
+
+# Check if Docker is running
 try {
-    $gitVersion = & git --version 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        Write-ColorOutput "Git is installed: $gitVersion" -Type Success
-    } else {
-        throw "Git command failed"
-    }
+    docker ps 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw }
+    Write-Host "[OK] Docker is running" -ForegroundColor Green
 } catch {
-    Write-ColorOutput "Git is not installed!" -Type Error
-    Write-ColorOutput "Please install Git from: https://git-scm.com/download/win" -Type Info
-    Write-ColorOutput "After installing Git, restart PowerShell and re-run this script." -Type Info
+    Write-Host "[ERROR] Docker is not running!" -ForegroundColor Red
+    Write-Host "Please start Docker Desktop and try again" -ForegroundColor Yellow
     exit 1
 }
 
-# Check Docker Desktop
-Write-ColorOutput "Checking for Docker Desktop..." -Type Info
+# Configure environment
+Write-Host ""
+Write-Host "========================================"  -ForegroundColor Magenta
+Write-Host "Configuring Environment" -ForegroundColor Magenta
+Write-Host "========================================" -ForegroundColor Magenta
+Write-Host ""
 
-# First check if docker command exists
-$dockerInstalled = $false
-try {
-    $dockerVersion = & docker --version 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        $dockerInstalled = $true
-        Write-ColorOutput "Docker is installed: $dockerVersion" -Type Success
-    }
-} catch {
-    # Docker command not found
-}
-
-if (-not $dockerInstalled) {
-    Write-ColorOutput "Docker Desktop is not installed!" -Type Error
-    Write-ColorOutput "Please install Docker Desktop from: https://www.docker.com/products/docker-desktop" -Type Info
-    Write-ColorOutput "After installing Docker Desktop, restart PowerShell and re-run this script." -Type Info
-    exit 1
-}
-
-# Docker is installed, now check if it's running (with timeout)
-Write-ColorOutput "Checking if Docker is running..." -Type Info
-$dockerRunning = $false
-
-# Find docker.exe full path (Start-Job doesn't inherit PATH environment)
-$dockerExePath = (Get-Command docker -ErrorAction SilentlyContinue).Path
-if (-not $dockerExePath) {
-    # Try common Docker installation locations
-    $commonPaths = @(
-        "${env:ProgramFiles}\Docker\Docker\resources\bin\docker.exe",
-        "${env:ProgramData}\DockerDesktop\version-bin\docker.exe",
-        "C:\Program Files\Docker\Docker\resources\bin\docker.exe"
-    )
-    foreach ($path in $commonPaths) {
-        if (Test-Path $path) {
-            $dockerExePath = $path
-            break
-        }
-    }
-}
-
-if ($dockerExePath) {
-    try {
-        # Pass docker path as argument to background job
-        $dockerCheck = Start-Job -ScriptBlock {
-            param($dockerPath)
-            & $dockerPath ps 2>&1 | Out-Null
-            exit $LASTEXITCODE
-        } -ArgumentList $dockerExePath
-
-        $null = Wait-Job $dockerCheck -Timeout 10
-
-        if ($dockerCheck.State -eq 'Completed') {
-            $exitCode = Receive-Job $dockerCheck
-            if ($exitCode -eq 0) {
-                $dockerRunning = $true
-            }
-        }
-
-        Remove-Job $dockerCheck -Force -ErrorAction SilentlyContinue
-    } catch {
-        # Job failed
-    }
-}
-
-# Fallback: try direct check if path not found or job failed
-if (-not $dockerRunning) {
-    try {
-        $ErrorActionPreference = 'Continue'
-        $null = & docker ps 2>&1
-        if ($LASTEXITCODE -eq 0) {
-            $dockerRunning = $true
-        }
-        $ErrorActionPreference = 'Stop'
-    } catch {
-        # Docker check failed
-    }
-}
-
-if ($dockerRunning) {
-    Write-ColorOutput "Docker is running" -Type Success
-} else {
-    Write-ColorOutput "Docker is installed but not running" -Type Warning
-    Write-ColorOutput "Please start Docker Desktop and wait for it to be ready (this may take 1-2 minutes)" -Type Info
-    Write-Host ""
-    Write-Host "Press any key when Docker Desktop is running..." -NoNewline
-    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-    Write-Host ""
-    Write-Host ""
-
-    # Verify Docker is now running (use direct check since we know it's in PATH)
-    Write-ColorOutput "Verifying Docker is running..." -Type Info
-    $dockerRunning = $false
-
-    try {
-        $ErrorActionPreference = 'Continue'
-        $null = & docker ps 2>&1
-        if ($LASTEXITCODE -eq 0) {
-            $dockerRunning = $true
-        }
-        $ErrorActionPreference = 'Stop'
-    } catch {
-        # Docker check failed
-    }
-
-    if ($dockerRunning) {
-        Write-ColorOutput "Docker is now running" -Type Success
-    } else {
-        Write-ColorOutput "Docker is still not running. Please ensure Docker Desktop is fully started." -Type Error
-        Write-ColorOutput "Look for the Docker whale icon in your system tray. It should say 'Docker Desktop is running'" -Type Info
-        exit 1
-    }
-}
-
-##############################################################################
-# 2. Install Lando
-##############################################################################
-
-if (-not $SkipLandoInstall) {
-    Write-ColorOutput "Step 2: Checking/Installing Lando" -Type Header
-
-    # Check if Lando is already installed
-    $landoInstalled = $false
-    $landoPath = $null
-    $landoVersion = $null
-
-    # Check common installation locations
-    $possiblePaths = @(
-        "C:\Program Files\Lando\lando.exe",
-        "${env:ProgramFiles}\Lando\lando.exe",
-        "${env:LOCALAPPDATA}\Programs\Lando\lando.exe"
-    )
-
-    foreach ($path in $possiblePaths) {
-        if (Test-Path $path) {
-            $landoPath = Split-Path $path -Parent
-            $landoInstalled = $true
-            break
-        }
-    }
-
-    # Try to get version from PATH
-    if (-not $landoInstalled) {
-        try {
-            $landoVersion = & lando version 2>&1
-            if ($LASTEXITCODE -eq 0) {
-                $landoInstalled = $true
-            }
-        } catch {
-            # Lando not in PATH, continue with installation
-        }
-    } else {
-        # Found Lando at specific path, get version
-        try {
-            $landoVersion = & "$landoPath\lando.exe" version 2>&1
-        } catch {
-            Write-ColorOutput "Lando found but unable to verify version" -Type Warning
-        }
-    }
-
-    # Check if installed version needs upgrade
-    $needsUpgrade = $false
-    if ($landoInstalled -and $landoVersion) {
-        if ($landoPath) {
-            Write-ColorOutput "Lando is already installed at: $landoPath" -Type Success
-        } else {
-            Write-ColorOutput "Lando is already installed (found in PATH)" -Type Success
-        }
-        Write-ColorOutput "Version: $landoVersion" -Type Info
-
-        # Check if it's a beta version
-        if ($landoVersion -match 'beta') {
-            # Known issue: files.lando.dev/installer/lando-x64-stable.exe installs v3.21.0-beta.14
-            # Skip upgrade prompt for this specific version since "upgrade" doesn't actually change it
-            if ($landoVersion -match 'v3\.21\.0-beta\.14') {
-                Write-ColorOutput "Beta version detected: $landoVersion" -Type Info
-                Write-ColorOutput "Note: Lando's 'stable' installer currently installs this beta version." -Type Info
-                Write-ColorOutput "This is a known issue with files.lando.dev distribution." -Type Info
-                Write-ColorOutput "The beta version works fine for development - continuing with setup..." -Type Info
-                $needsUpgrade = $false
-            } else {
-                Write-ColorOutput "Beta version detected - upgrading to stable release" -Type Warning
-                $needsUpgrade = $true
-            }
-        }
-        # Check if it's a very old version (pre-v3.20)
-        elseif ($landoVersion -match 'v(\d+)\.(\d+)\.(\d+)') {
-            $major = [int]$matches[1]
-            $minor = [int]$matches[2]
-
-            if ($major -lt 3 -or ($major -eq 3 -and $minor -lt 20)) {
-                Write-ColorOutput "Outdated version detected - upgrading to latest stable" -Type Warning
-                $needsUpgrade = $true
-            }
-        }
-
-        if (-not $needsUpgrade) {
-            Write-ColorOutput "Lando version is up-to-date (idempotent check passed)" -Type Success
-        }
-    }
-
-    # Prompt for confirmation if upgrading existing installation
-    $proceedWithInstall = $true
-    $oldVersion = $landoVersion  # Store old version for comparison after upgrade
-    if ($needsUpgrade) {
-        Write-ColorOutput "" -Type Info
-        Write-ColorOutput "Your current Lando installation will be upgraded to the latest stable version." -Type Warning
-        Write-ColorOutput "Current version: $landoVersion" -Type Info
-        Write-ColorOutput "" -Type Info
-        Write-Host -NoNewline "Do you want to proceed with the upgrade? (Y/N/Exit): "
-        $response = Read-Host
-
-        switch ($response.ToUpper()) {
-            "Y" {
-                Write-ColorOutput "Proceeding with Lando upgrade..." -Type Success
-                $proceedWithInstall = $true
-            }
-            "N" {
-                Write-ColorOutput "Skipping Lando upgrade. Continuing with existing version..." -Type Warning
-                Write-ColorOutput "Note: Your beta/outdated version may have compatibility issues" -Type Info
-                $proceedWithInstall = $false
-            }
-            "EXIT" {
-                Write-ColorOutput "Exiting script as requested." -Type Info
-                exit 0
-            }
-            default {
-                Write-ColorOutput "Invalid response. Treating as 'No' - skipping upgrade..." -Type Warning
-                $proceedWithInstall = $false
-            }
-        }
-        Write-ColorOutput "" -Type Info
-    }
-
-    if ((-not $landoInstalled -or $needsUpgrade) -and $proceedWithInstall) {
-        if ($needsUpgrade) {
-            Write-ColorOutput "Preparing to upgrade Lando..." -Type Info
-        } else {
-            Write-ColorOutput "Lando is not installed" -Type Warning
-        }
-
-        # Lando official installer URL (no longer on GitHub releases)
-        # Latest stable version is downloaded from lando.dev
-        $landoUrl = "https://files.lando.dev/installer/lando-x64-stable.exe"
-        $installerPath = Join-Path $env:TEMP "lando-installer.exe"
-
-        # Download with retry logic
-        $maxRetries = 3
-        $retryCount = 0
-        $downloadSuccess = $false
-
-        while ($retryCount -lt $maxRetries -and -not $downloadSuccess) {
-            try {
-                $retryCount++
-                if ($retryCount -gt 1) {
-                    $waitTime = [Math]::Pow(2, $retryCount - 1)
-                    Write-ColorOutput "Retry attempt $retryCount of $maxRetries (waiting ${waitTime}s)..." -Type Info
-                    Start-Sleep -Seconds $waitTime
-                }
-
-                Write-ColorOutput "Downloading Lando installer... (attempt $retryCount/$maxRetries)" -Type Info
-
-                # Use Invoke-WebRequest with timeout
-                $webRequest = Invoke-WebRequest -Uri $landoUrl -OutFile $installerPath -TimeoutSec 300 -UseBasicParsing -ErrorAction Stop
-
-                # Verify file was downloaded
-                if (Test-Path $installerPath) {
-                    $fileSize = (Get-Item $installerPath).Length
-                    if ($fileSize -gt 1MB) {
-                        Write-ColorOutput "Lando installer downloaded successfully ($([Math]::Round($fileSize/1MB, 2)) MB)" -Type Success
-                        $downloadSuccess = $true
-                    } else {
-                        Write-ColorOutput "Downloaded file seems incomplete (size: $fileSize bytes)" -Type Warning
-                        Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
-                        throw "Incomplete download"
-                    }
-                } else {
-                    throw "Download failed - file not found"
-                }
-
-            } catch {
-                Write-ColorOutput "Download attempt $retryCount failed: $($_.Exception.Message)" -Type Warning
-                if ($retryCount -eq $maxRetries) {
-                    Write-ColorOutput "All download attempts failed" -Type Error
-                    Write-ColorOutput "You can manually download from: $landoUrl" -Type Info
-                    Write-ColorOutput "Then run the installer and re-run this script with: .\quickstart.ps1 -SkipLandoInstall" -Type Info
-                    if (Test-Path $installerPath) {
-                        Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
-                    }
-                    exit 1
-                }
-            }
-        }
-
-        # Install Lando
-        if ($downloadSuccess) {
-            try {
-                Write-ColorOutput "Installing Lando silently... (this may take a few minutes)" -Type Info
-
-                # Determine installation directory
-                if ($LandoInstallPath -ne "") {
-                    # User specified custom path
-                    $installDir = $LandoInstallPath
-                    Write-ColorOutput "Using custom installation path: $installDir" -Type Info
-
-                    # Validate custom path
-                    $parentDir = Split-Path $installDir -Parent
-                    if (-not (Test-Path $parentDir)) {
-                        try {
-                            New-Item -ItemType Directory -Path $parentDir -Force -ErrorAction Stop | Out-Null
-                            Write-ColorOutput "Created parent directory: $parentDir" -Type Success
-                        } catch {
-                            Write-ColorOutput "Cannot create directory: $parentDir" -Type Error
-                            Write-ColorOutput "Error: $_" -Type Error
-                            exit 1
-                        }
-                    }
-                } else {
-                    # Use default system-wide installation path (requires admin)
-                    $installDir = "C:\Program Files\Lando"
-                    Write-ColorOutput "Installing to system directory: $installDir" -Type Info
-                }
-
-                # Create installation directory if it doesn't exist
-                if (-not (Test-Path $installDir)) {
-                    New-Item -ItemType Directory -Path $installDir -Force | Out-Null
-                }
-
-                # Run installer with silent flags
-                # Common silent install flags for Windows installers:
-                # /S = Silent (NSIS)
-                # /VERYSILENT = Very Silent (Inno Setup)
-                # /NORESTART = Don't restart computer
-                # /D= = Installation directory (must be last parameter)
-
-                $installerArgs = @(
-                    "/VERYSILENT",
-                    "/SUPPRESSMSGBOXES",
-                    "/NORESTART",
-                    "/SP-",
-                    "/NOICONS",
-                    "/TASKS=`"desktopicon,addtopath`"",
-                    "/DIR=`"$installDir`""
-                )
-
-                Write-ColorOutput "Running silent installation..." -Type Info
-                $process = Start-Process -FilePath $installerPath -ArgumentList $installerArgs -Wait -PassThru -NoNewWindow
-
-                # Clean up installer
-                if (Test-Path $installerPath) {
-                    Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
-                }
-
-                # Check exit code (0 = success, some installers return other codes for success)
-                $exitCode = $process.ExitCode
-                Write-ColorOutput "Installer exited with code: $exitCode" -Type Info
-
-                # Common successful exit codes: 0, 1641 (reboot initiated), 3010 (reboot required)
-                if ($exitCode -eq 0 -or $exitCode -eq 1641 -or $exitCode -eq 3010 -or $exitCode -eq $null) {
-                    Write-ColorOutput "Lando installation completed" -Type Success
-                    Write-ColorOutput "Verifying installation and refreshing PATH..." -Type Info
-
-                    # Wait for installation to fully complete
-                    Start-Sleep -Seconds 3
-
-                    # Refresh PATH from registry for current session
-                    $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
-                    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-                    $env:Path = "$machinePath;$userPath"
-
-                    # Verify the installation directory
-                    if (Test-Path "$installDir\lando.exe") {
-                        Write-ColorOutput "Lando executable found at: $installDir" -Type Success
-
-                        # Explicitly add to system PATH if not already there
-                        $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
-                        if ($machinePath -notlike "*$installDir*") {
-                            try {
-                                Write-ColorOutput "Adding $installDir to system PATH..." -Type Info
-                                [Environment]::SetEnvironmentVariable("Path", "$machinePath;$installDir", "Machine")
-                                Write-ColorOutput "Successfully added to system PATH (persists for all users)" -Type Success
-                            } catch {
-                                Write-ColorOutput "Could not update system PATH: $_" -Type Error
-                                Write-ColorOutput "Installation may be incomplete" -Type Warning
-                            }
-                        } else {
-                            Write-ColorOutput "Already in system PATH" -Type Success
-                        }
-
-                        # Refresh environment variables for current session
-                        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
-                        if ($env:Path -notlike "*$installDir*") {
-                            $env:Path = "$installDir;$env:Path"
-                        }
-
-                        # Mark this session as having refreshed PATH
-                        $env:QUICKSTART_PATH_REFRESHED = "true"
-
-                        Write-ColorOutput "PATH updated for THIS PowerShell session" -Type Success
-                        Write-ColorOutput "Note: Other open PowerShell windows won't see Lando until reopened" -Type Info
-
-                        # Wait for file system to settle
-                        Start-Sleep -Seconds 5
-
-                        # Try multiple verification attempts
-                        $verifySuccess = $false
-                        $maxAttempts = 3
-
-                        for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-                            try {
-                                Write-ColorOutput "Verifying Lando installation (attempt $attempt/$maxAttempts)..." -Type Info
-
-                                # Try running lando directly from the installation path
-                                $landoExePath = Join-Path $installDir "lando.exe"
-                                $landoVersion = & $landoExePath version 2>&1
-
-                                if ($LASTEXITCODE -eq 0 -and $landoVersion) {
-                                    Write-ColorOutput "Lando verified successfully: $landoVersion" -Type Success
-                                    Write-ColorOutput "Installation directory: $installDir" -Type Info
-
-                                    # Check if upgrade actually changed the version
-                                    if ($needsUpgrade -and $oldVersion) {
-                                        if ($landoVersion -eq $oldVersion) {
-                                            Write-ColorOutput "" -Type Info
-                                            Write-ColorOutput "WARNING: Version did not change after upgrade!" -Type Warning
-                                            Write-ColorOutput "  Old version: $oldVersion" -Type Info
-                                            Write-ColorOutput "  New version: $landoVersion" -Type Info
-                                            Write-ColorOutput "" -Type Info
-
-                                            if ($landoVersion -match 'beta') {
-                                                Write-ColorOutput "ISSUE: The 'stable' installer is actually still installing a beta version." -Type Error
-                                                Write-ColorOutput "This is a known issue with Lando's distribution server (files.lando.dev)." -Type Info
-                                                Write-ColorOutput "" -Type Info
-                                                Write-ColorOutput "Workaround: The beta version should work fine for development." -Type Info
-                                                Write-ColorOutput "If you experience issues, you can manually download a specific version from:" -Type Info
-                                                Write-ColorOutput "  https://github.com/lando/lando/releases" -Type Info
-                                                Write-ColorOutput "" -Type Info
-                                                Write-ColorOutput "The script will continue with the current beta version." -Type Warning
-                                                Write-ColorOutput "" -Type Info
-                                            }
-                                        } else {
-                                            Write-ColorOutput "Successfully upgraded from $oldVersion to $landoVersion" -Type Success
-
-                                            # Still warn if new version is beta
-                                            if ($landoVersion -match 'beta') {
-                                                Write-ColorOutput "" -Type Info
-                                                Write-ColorOutput "NOTE: Installed version is still a beta version." -Type Warning
-                                                Write-ColorOutput "The 'stable' installer from files.lando.dev appears to be a beta." -Type Info
-                                                Write-ColorOutput "The script will continue - beta versions are generally stable enough for development." -Type Info
-                                                Write-ColorOutput "" -Type Info
-                                            }
-                                        }
-                                    }
-
-                                    $verifySuccess = $true
-                                    break
-                                } else {
-                                    throw "Lando returned exit code: $LASTEXITCODE"
-                                }
-                            } catch {
-                                if ($attempt -lt $maxAttempts) {
-                                    Write-ColorOutput "Verification attempt $attempt failed, retrying..." -Type Warning
-                                    Start-Sleep -Seconds 3
-                                } else {
-                                    Write-ColorOutput "Could not verify Lando automatically after $maxAttempts attempts" -Type Warning
-                                    Write-ColorOutput "Error: $_" -Type Info
-                                }
-                            }
-                        }
-
-                        if ($verifySuccess) {
-                            Write-ColorOutput "Continuing with setup..." -Type Info
-                            Write-Host ""
-                            # Don't exit - continue with the rest of the script
-                        } else {
-                            Write-ColorOutput "Lando is installed but automatic verification failed" -Type Warning
-                            Write-ColorOutput "" -Type Info
-                            Write-ColorOutput "This is usually due to PATH refresh timing. Try one of these:" -Type Info
-                            Write-ColorOutput "" -Type Info
-                            Write-ColorOutput "Option 1: Continue anyway (if you know Lando works)" -Type Info
-                            $continue = Read-Host "  Press 'y' to continue setup, or any other key to exit"
-
-                            if ($continue -eq "y" -or $continue -eq "Y") {
-                                Write-ColorOutput "Continuing with setup..." -Type Success
-                                Write-Host ""
-                                # Continue with script
-                            } else {
-                                Write-ColorOutput "" -Type Info
-                                Write-ColorOutput "Option 2: Manual verification and PATH setup:" -Type Info
-                                Write-ColorOutput "  1. Verify installation:" -Type Info
-                                Write-ColorOutput "     Test-Path '$installDir\lando.exe'" -Type Info
-                                Write-ColorOutput "  2. Add to PATH (run as Administrator):" -Type Info
-                                Write-ColorOutput "     `$path = [Environment]::GetEnvironmentVariable('Path', 'Machine')" -Type Info
-                                Write-ColorOutput "     [Environment]::SetEnvironmentVariable('Path', `"`$path;$installDir`", 'Machine')" -Type Info
-                                Write-ColorOutput "  3. Open a NEW PowerShell window" -Type Info
-                                Write-ColorOutput "  4. Run: lando version" -Type Info
-                                Write-ColorOutput "  5. If that works, run: .\quickstart.ps1 -SkipLandoInstall" -Type Info
-                                exit 0
-                            }
-                        }
-                    } else {
-                        Write-ColorOutput "Installation completed but lando.exe not found at expected location" -Type Warning
-                        Write-ColorOutput "Expected: $installDir\lando.exe" -Type Info
-
-                        # Check other common locations
-                        $foundElsewhere = $false
-                        $otherPaths = @(
-                            "C:\Program Files\Lando\lando.exe",
-                            "${env:LOCALAPPDATA}\Programs\Lando\lando.exe"
-                        )
-
-                        foreach ($altPath in $otherPaths) {
-                            if (Test-Path $altPath) {
-                                $altDir = Split-Path $altPath -Parent
-                                Write-ColorOutput "Found Lando at: $altDir" -Type Success
-                                if ($env:Path -notlike "*$altDir*") {
-                                    $env:Path += ";$altDir"
-                                }
-                                $foundElsewhere = $true
-                                break
-                            }
-                        }
-
-                        if (-not $foundElsewhere) {
-                            Write-ColorOutput "Please restart PowerShell and verify installation manually" -Type Warning
-                            Write-ColorOutput "Then run: .\quickstart.ps1 -SkipLandoInstall" -Type Info
-                            exit 0
-                        }
-                    }
-                } else {
-                    Write-ColorOutput "Installation may have failed (exit code: $exitCode)" -Type Warning
-                    Write-ColorOutput "Common exit codes: 0=success, 1641=reboot initiated, 3010=reboot required" -Type Info
-                    Write-ColorOutput "Please verify manually with: lando version" -Type Info
-                    Write-ColorOutput "If installed, continue with: .\quickstart.ps1 -SkipLandoInstall" -Type Info
-                    exit 0
-                }
-
-            } catch {
-                Write-ColorOutput "Failed to install Lando: $_" -Type Error
-                Write-ColorOutput "Please manually install from: https://docs.lando.dev/getting-started/installation.html" -Type Info
-                if (Test-Path $installerPath) {
-                    Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
-                }
-                exit 1
-            }
-        }
-    } else {
-        # Lando is already installed and up-to-date (message already shown above)
-        Write-ColorOutput "Skipping installation..." -Type Info
-
-        # Make sure Lando is in PATH for current session
-        if ($landoPath -and $env:Path -notlike "*$landoPath*") {
-            Write-ColorOutput "Adding Lando to PATH for current session..." -Type Info
-            $env:Path += ";$landoPath"
-        }
-    }
-} else {
-    Write-ColorOutput "Skipping Lando installation check (user requested)" -Type Info
-}
-
-##############################################################################
-# 3. Configure Environment
-##############################################################################
-
-Write-ColorOutput "Step 3: Configuring Environment" -Type Header
-
-# Check if .env already exists
 if (Test-Path ".env") {
-    Write-ColorOutput ".env file already exists" -Type Warning
-    $overwrite = Read-Host "Do you want to reconfigure? (y/N)"
-    if ($overwrite -ne "y" -and $overwrite -ne "Y") {
-        Write-ColorOutput "Keeping existing .env file" -Type Info
+    Write-Host "[WARN] .env file already exists" -ForegroundColor Yellow
+    $overwrite = Read-Host "Reconfigure? (y/N)"
+    if ($overwrite -ne 'y') {
+        Write-Host "[INFO] Keeping existing .env" -ForegroundColor Cyan
     } else {
-        Remove-Item ".env" -Force
+        Remove-Item ".env"
     }
 }
 
 if (-not (Test-Path ".env")) {
-    Write-ColorOutput "Creating .env file..." -Type Info
-
-    # Prompt for Pantheon credentials
-    Write-Host ""
-    Write-Host "Please provide your Pantheon site information:"
-    Write-ColorOutput "You can find these in your Pantheon Dashboard" -Type Info
-    Write-Host ""
-
-    $pantheonSite = Read-Host "Pantheon Site Name (e.g., my-awesome-site)"
-
-    # Get and validate UUID with retry logic
-    $pantheonSiteId = $null
-    $maxAttempts = 3
-    $attempt = 0
-
-    while ($null -eq $pantheonSiteId -and $attempt -lt $maxAttempts) {
-        $attempt++
-        Write-Host ""
-        Write-ColorOutput "Pantheon Site UUID (Attempt $attempt/$maxAttempts)" -Type Info
-        Write-ColorOutput "You can paste the UUID in any of these formats:" -Type Info
-        Write-ColorOutput "  - UUID only: <uuid>" -Type Info
-        Write-ColorOutput "  - With hash: <uuid>#dev/code" -Type Info
-        Write-ColorOutput "  - Full URL: https://dashboard.pantheon.io/sites/<uuid>" -Type Info
-        Write-Host ""
-        $uuidInput = Read-Host "Pantheon Site UUID"
-        $pantheonSiteId = Extract-PantheonUUID -UserInput $uuidInput
-
-        if ($null -eq $pantheonSiteId -and $attempt -lt $maxAttempts) {
-            Write-Host ""
-            Write-ColorOutput "Please try again" -Type Warning
-        }
-    }
-
-    if ($null -eq $pantheonSiteId) {
-        Write-ColorOutput "Failed to get valid UUID after $maxAttempts attempts" -Type Error
-        exit 1
-    }
-
-    Write-ColorOutput "Using UUID: $pantheonSiteId" -Type Success
-    Write-ColorOutput "This will connect to the DEV environment only" -Type Info
-    Write-Host ""
-
-    Write-ColorOutput "Terminus Machine Token" -Type Info
-    Write-ColorOutput "Find or create your token at: https://dashboard.pantheon.io/personal-settings/machine-tokens" -Type Info
-    Write-Host ""
-    $terminusTokenSecure = Read-Host "Terminus Machine Token" -AsSecureString
-    $terminusToken = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($terminusTokenSecure))
-
-    # Create .env file
     if (-not (Test-Path ".env.example")) {
-        Write-ColorOutput ".env.example not found! Are you in the correct directory?" -Type Error
+        Write-Host "[ERROR] .env.example not found!" -ForegroundColor Red
         exit 1
     }
 
-    Copy-Item ".env.example" ".env" -Force
+    Write-Host "Enter your Pantheon site details:" -ForegroundColor Cyan
+    Write-Host ""
+    $site = Read-Host "Site Name (e.g., my-site)"
+    $uuid = Read-Host "Site UUID"
+    $token = Read-Host "Machine Token" -AsSecureString
+    $tokenPlain = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($token))
 
-    # Update .env with user values
-    $envContent = Get-Content ".env" -Raw
-    $envContent = $envContent -replace 'PANTHEON_SITE=your-site-name', "PANTHEON_SITE=$pantheonSite"
-    $envContent = $envContent -replace 'PANTHEON_SITE_ID=your-site-uuid', "PANTHEON_SITE_ID=$pantheonSiteId"
-    $envContent = $envContent -replace 'TERMINUS_TOKEN=your-terminus-machine-token', "TERMINUS_TOKEN=$terminusToken"
-    $envContent = $envContent -replace 'PANTHEON_SITE_URL=dev-your-site-name.pantheonsite.io', "PANTHEON_SITE_URL=dev-$pantheonSite.pantheonsite.io"
+    # Create .env with Unix line endings (LF)
+    $content = Get-Content ".env.example" -Raw
+    $content = $content -replace "PANTHEON_SITE=your-site-name", "PANTHEON_SITE=$site"
+    $content = $content -replace "PANTHEON_SITE_ID=your-site-uuid", "PANTHEON_SITE_ID=$uuid"
+    $content = $content -replace "TERMINUS_TOKEN=your-terminus-machine-token", "TERMINUS_TOKEN=$tokenPlain"
+    $content = $content -replace "PANTHEON_SITE_URL=dev-your-site-name.pantheonsite.io", "PANTHEON_SITE_URL=dev-$site.pantheonsite.io"
+    $content = $content -replace "`r`n", "`n"
+    [System.IO.File]::WriteAllText("$PWD\.env", $content)
 
-    Set-Content ".env" -Value $envContent -NoNewline
-
-    Write-ColorOutput ".env file created and configured" -Type Success
+    Write-Host "[OK] .env created" -ForegroundColor Green
 }
 
-# Always regenerate .lando.yml from template to pick up updates (like WP-CLI installation)
+# Update .lando.yml
 if (Test-Path ".lando.yml.example") {
-    Write-ColorOutput "Regenerating .lando.yml from template..." -Type Info
     Copy-Item ".lando.yml.example" ".lando.yml" -Force
-    Write-ColorOutput ".lando.yml regenerated from template" -Type Success
-} else {
-    Write-ColorOutput ".lando.yml.example template not found! Are you in the correct directory?" -Type Error
-    exit 1
-}
 
-# Update .lando.yml with site details from .env
-Write-ColorOutput "Updating .lando.yml configuration..." -Type Info
-if (Test-Path ".env") {
-    # Read PANTHEON_SITE and PANTHEON_SITE_ID from .env
-    $envLines = Get-Content ".env"
-    $pantheonSite = ($envLines | Where-Object { $_ -match "^PANTHEON_SITE=" }) -replace "PANTHEON_SITE=", ""
-    $pantheonSiteId = ($envLines | Where-Object { $_ -match "^PANTHEON_SITE_ID=" }) -replace "PANTHEON_SITE_ID=", ""
+    # Read env vars
+    $envVars = @{}
+    Get-Content ".env" | ForEach-Object {
+        if ($_ -match '^\s*([^#][^=]*)\s*=\s*(.*)$') {
+            $envVars[$matches[1].Trim()] = $matches[2].Trim() -replace "`r", "" -replace "`n", ""
+        }
+    }
 
-    # Update .lando.yml (local file, gitignored)
+    # Update .lando.yml
     $landoContent = Get-Content ".lando.yml" -Raw
-    $landoContent = $landoContent -replace 'site: YOUR_PANTHEON_SITE_NAME', "site: $pantheonSite"
-    $landoContent = $landoContent -replace 'id: YOUR_PANTHEON_SITE_ID', "id: $pantheonSiteId"
-    Set-Content ".lando.yml" -Value $landoContent -NoNewline
+    $landoContent = $landoContent -replace "site: YOUR_PANTHEON_SITE_NAME", "site: $($envVars['PANTHEON_SITE'])"
+    $landoContent = $landoContent -replace "id: YOUR_PANTHEON_SITE_ID", "id: $($envVars['PANTHEON_SITE_ID'])"
+    $landoContent = $landoContent -replace "`r`n", "`n"
+    [System.IO.File]::WriteAllText("$PWD\.lando.yml", $landoContent)
 
-    Write-ColorOutput ".lando.yml updated with your site details" -Type Success
+    Write-Host "[OK] .lando.yml configured" -ForegroundColor Green
 }
 
-##############################################################################
-# 4. Start Lando
-##############################################################################
+# Start Lando
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Magenta
+Write-Host "Starting Lando" -ForegroundColor Magenta
+Write-Host "========================================" -ForegroundColor Magenta
+Write-Host ""
+Write-Host "[INFO] First run: 3-6 minutes" -ForegroundColor Cyan
+Write-Host "[INFO] Subsequent runs: 15-30 seconds" -ForegroundColor Cyan
+Write-Host ""
 
-Write-ColorOutput "Step 4: Starting Lando Environment" -Type Header
-
-# Clean up any partial Composer installations before starting
-if ((Test-Path "vendor") -and (-not (Test-Path "vendor/autoload.php"))) {
-    Write-ColorOutput "Cleaning up partial Composer installation..." -Type Info
-    Remove-Item -Recurse -Force vendor -ErrorAction SilentlyContinue
-}
-
-# Smart Container Orchestration
-# Determine if we need full rebuild, fast restart, or can use existing containers
-Write-ColorOutput "Analyzing container state..." -Type Info
-
-$currentLandoHash = Get-FileHashSHA256 ".lando.yml"
-$previousBuildInfo = Get-LandoBuildInfo
-$containerState = Test-ContainerState
-
-$needsRebuild = $false
-$needsRestart = $false
-$canUseExisting = $false
-
-# Decision logic
 if ($Force) {
-    Write-ColorOutput "Force rebuild requested (-Force flag)" -Type Info
-    $needsRebuild = $true
-} elseif ($QuickStart) {
-    Write-ColorOutput "Quick start requested (-QuickStart flag) - using existing containers" -Type Info
-    $canUseExisting = $true
-} elseif ($null -eq $previousBuildInfo) {
-    Write-ColorOutput "First run detected - full build required" -Type Info
-    $needsRebuild = $true
-} elseif ($previousBuildInfo.landoYmlHash -ne $currentLandoHash) {
-    Write-ColorOutput "Configuration changed - full rebuild required" -Type Info
-    Write-ColorOutput "  Previous hash: $($previousBuildInfo.landoYmlHash.Substring(0,16))..." -Type Info
-    Write-ColorOutput "  Current hash:  $($currentLandoHash.Substring(0,16))..." -Type Info
-    $needsRebuild = $true
-} elseif ($containerState -eq "missing") {
-    Write-ColorOutput "Containers not found - full build required" -Type Info
-    $needsRebuild = $true
-} elseif ($containerState -eq "stopped") {
-    Write-ColorOutput "Containers exist but stopped - fast restart possible" -Type Info
-    $needsRestart = $true
-} elseif ($containerState -eq "running") {
-    Write-ColorOutput "Containers already running - verifying health..." -Type Info
-    $canUseExisting = $true
-} else {
-    Write-ColorOutput "Unknown container state - full rebuild required" -Type Warning
-    $needsRebuild = $true
+    Write-Host "[INFO] Force rebuild requested..." -ForegroundColor Cyan
+    lando destroy -y 2>&1 | Out-Null
 }
 
-# Execute decision
-if ($needsRebuild) {
-    Write-ColorOutput "" -Type Info
-    Write-ColorOutput "Performing full rebuild (this will take 3-5 minutes)..." -Type Info
-    Write-ColorOutput "  - Stopping containers..." -Type Info
+lando start
 
-    # Stop containers
-    $ErrorActionPreference = 'Continue'
-    & lando stop 2>&1 | Out-Null
-    $ErrorActionPreference = 'Stop'
-    Start-Sleep -Seconds 2
-
-    Write-ColorOutput "  - Destroying old containers..." -Type Info
-
-    # Destroy containers
-    $ErrorActionPreference = 'Continue'
-    & lando destroy -y 2>&1 | Out-Null
-    $ErrorActionPreference = 'Stop'
-    Start-Sleep -Seconds 2
-
-    Write-ColorOutput "  - Ready for fresh build" -Type Success
-} elseif ($needsRestart) {
-    Write-ColorOutput "" -Type Info
-    Write-ColorOutput "Fast restart (this will take ~30 seconds)..." -Type Info
-    Write-ColorOutput "  - No rebuild needed, just restarting containers" -Type Info
-} elseif ($canUseExisting) {
-    Write-ColorOutput "" -Type Info
-    Write-ColorOutput "Using existing containers (instant startup)..." -Type Info
-    Write-ColorOutput "  - Skipping rebuild and restart" -Type Info
-}
-
-$landoStarted = $false
-$maxAttempts = 3
-
-# Skip lando start if we can use existing containers
-if ($canUseExisting) {
-    Write-ColorOutput "" -Type Info
-    Write-ColorOutput "Containers already running - verifying health..." -Type Info
-    $landoStarted = $true
-    # Will verify health below
-} else {
-    # Need to start or restart containers
-    if ($needsRestart) {
-        Write-ColorOutput "" -Type Info
-        Write-ColorOutput "Starting existing containers..." -Type Info
-    } else {
-        Write-ColorOutput "" -Type Info
-        Write-ColorOutput "Starting Lando... (this may take several minutes on first run)" -Type Info
-    }
-
-    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-        # Capture output to check for errors
-        $startOutput = ""
-
-        if ($attempt -eq 1) {
-            Write-ColorOutput "Starting Lando (attempt $attempt/$maxAttempts)..." -Type Info
-            # Capture output while also displaying it
-            $ErrorActionPreference = 'Continue'
-            $startOutput = & lando start 2>&1 | Tee-Object -Variable tempOutput | Out-String
-            $startOutput = $tempOutput -join "`n"
-            $ErrorActionPreference = 'Stop'
-        } elseif ($attempt -eq 2) {
-            Write-ColorOutput "First attempt failed. Destroying and starting fresh (attempt $attempt/$maxAttempts)..." -Type Warning
-            # Project-specific stop (doesn't affect other Lando projects)
-            & lando stop 2>&1 | Out-Null
-            Start-Sleep -Seconds 2
-            # Gracefully handle destroy warnings (project-specific)
-            $ErrorActionPreference = 'Continue'
-            & lando destroy -y 2>&1 | Out-Null
-            $ErrorActionPreference = 'Stop'
-            Start-Sleep -Seconds 2
-            $ErrorActionPreference = 'Continue'
-            $startOutput = & lando start 2>&1 | Tee-Object -Variable tempOutput | Out-String
-            $startOutput = $tempOutput -join "`n"
-            $ErrorActionPreference = 'Stop'
-        } else {
-            Write-ColorOutput "Second attempt failed. Performing aggressive cleanup (attempt $attempt/$maxAttempts)..." -Type Warning
-            # Project-specific stop (doesn't affect other Lando projects)
-            & lando stop 2>&1 | Out-Null
-            Start-Sleep -Seconds 2
-            # Gracefully handle destroy warnings (project-specific, cleans up this project's resources)
-            $ErrorActionPreference = 'Continue'
-            & lando destroy -y 2>&1 | Out-Null
-            $ErrorActionPreference = 'Stop'
-            Start-Sleep -Seconds 2
-            # Note: Removed 'docker system prune' - too aggressive, affects all Docker projects
-            # lando destroy already cleans up this project's containers, networks, and volumes
-            $ErrorActionPreference = 'Continue'
-            $startOutput = & lando start 2>&1 | Tee-Object -Variable tempOutput | Out-String
-            $startOutput = $tempOutput -join "`n"
-            $ErrorActionPreference = 'Stop'
-        }
-
-    # Check for critical errors in the output
-    $hasErrors = $false
-    $errorLines = @()
-
-    if ($startOutput) {
-        # Extract lines containing errors
-        $outputLines = $startOutput -split "`n"
-        foreach ($line in $outputLines) {
-            if ($line -match "Error response from daemon|manifest.*not found|ERROR ==>|Error$") {
-                $errorLines += $line.Trim()
-            }
-        }
-
-        if ($errorLines.Count -gt 0) {
-            Write-ColorOutput "Detected errors in Lando startup output:" -Type Warning
-            Write-ColorOutput "" -Type Info
-            foreach ($errLine in $errorLines) {
-                Write-ColorOutput "  $errLine" -Type Error
-            }
-            Write-ColorOutput "" -Type Info
-            $hasErrors = $true
-        }
-    }
-
-    # Verify containers are actually running and healthy
-    Start-Sleep -Seconds 5
-    Write-ColorOutput "Verifying containers are running..." -Type Info
-
-    try {
-        $landoInfo = & lando info --format json 2>&1 | Out-String
-        $containersHealthy = $false
-
-        if ($LASTEXITCODE -eq 0 -and $landoInfo -match '\[' -and $landoInfo -notmatch '"service":\s*\[\s*\]') {
-            # Parse JSON to check for running services
-            try {
-                $landoData = $landoInfo | ConvertFrom-Json
-                if ($landoData -and $landoData.Count -gt 0) {
-                    # Check if services exist and are not in error state
-                    $serviceCount = 0
-                    $serviceStatus = @()
-
-                    foreach ($service in $landoData) {
-                        if ($service.service) {
-                            $serviceCount++
-                            $status = if ($service.healthy -eq $true) { "healthy" } elseif ($service.healthy -eq $false) { "UNHEALTHY" } else { "unknown" }
-                            $serviceStatus += "  - $($service.service): $status"
-                        }
-                    }
-
-                    # Show service status for debugging
-                    if ($serviceCount -gt 0) {
-                        Write-ColorOutput "Container status:" -Type Info
-                        foreach ($status in $serviceStatus) {
-                            if ($status -match "UNHEALTHY") {
-                                Write-ColorOutput "$status (may be normal before WordPress is installed)" -Type Warning
-                            } elseif ($status -match "healthy") {
-                                Write-ColorOutput $status -Type Success
-                            } else {
-                                Write-ColorOutput $status -Type Info
-                            }
-                        }
-                        Write-ColorOutput "" -Type Info
-                    }
-
-                    # Containers are healthy if they're RUNNING, even if health checks fail
-                    # Health checks may fail before WordPress files/DB are installed - this is expected
-                    # Prioritize actual container status over warning messages in output
-                    if ($serviceCount -gt 0) {
-                        $containersHealthy = $true
-                        if ($hasErrors) {
-                            Write-ColorOutput "Note: Error messages detected in output, but containers started successfully" -Type Warning
-                            Write-ColorOutput "This may indicate image fallbacks or non-critical warnings" -Type Info
-                        }
-                        Write-ColorOutput "Containers are running (health checks will pass after WordPress setup)" -Type Info
-                    }
-                }
-            } catch {
-                Write-ColorOutput "Could not parse lando info JSON: $_" -Type Warning
-            }
-        } else {
-            Write-ColorOutput "No containers detected in lando info output" -Type Warning
-        }
-
-        if ($containersHealthy) {
-            Write-ColorOutput "Lando started successfully!" -Type Success
-            $landoStarted = $true
-
-            # Install Lando SSL certificate to prevent browser warnings
-            Write-ColorOutput "" -Type Info
-            Write-ColorOutput "Installing Lando SSL certificate..." -Type Info
-            $landoCertPath = Join-Path $env:USERPROFILE ".lando\certs\lndo.site.pem"
-
-            if (Test-Path $landoCertPath) {
-                try {
-                    # Check if certificate is already installed
-                    $certThumbprint = (Get-PfxCertificate -FilePath $landoCertPath -ErrorAction SilentlyContinue).Thumbprint
-                    $certExists = $false
-
-                    if ($certThumbprint) {
-                        $certExists = Get-ChildItem -Path Cert:\LocalMachine\Root | Where-Object { $_.Thumbprint -eq $certThumbprint }
-                    }
-
-                    if ($certExists) {
-                        Write-ColorOutput "Lando SSL certificate already trusted" -Type Success
-                    } else {
-                        # Import certificate to Trusted Root Certification Authorities
-                        Import-Certificate -FilePath $landoCertPath -CertStoreLocation Cert:\LocalMachine\Root -ErrorAction Stop | Out-Null
-                        Write-ColorOutput "Lando SSL certificate installed successfully!" -Type Success
-                        Write-ColorOutput "You won't see browser security warnings for *.lndo.site domains" -Type Info
-                    }
-                } catch {
-                    Write-ColorOutput "Could not install SSL certificate automatically: $_" -Type Warning
-                    Write-ColorOutput "You may see browser security warnings for https://wordpress-pantheon.lndo.site" -Type Info
-                    Write-ColorOutput "This is safe - just click 'Advanced' -> 'Proceed' in your browser" -Type Info
-                }
-            } else {
-                Write-ColorOutput "Lando certificate not found at expected location" -Type Warning
-                Write-ColorOutput "You may see browser security warnings (safe to bypass)" -Type Info
-            }
-
-            break
-        } else {
-            if ($hasErrors) {
-                Write-ColorOutput "Startup completed but with errors - see error details above" -Type Warning
-            } else {
-                Write-ColorOutput "Containers not running properly" -Type Warning
-            }
-            if ($attempt -lt $maxAttempts) {
-                Write-ColorOutput "Will retry with more aggressive cleanup..." -Type Warning
-                Start-Sleep -Seconds 2
-            }
-        }
-    } catch {
-        Write-ColorOutput "Verification failed: $_" -Type Warning
-        if ($attempt -lt $maxAttempts) {
-            Write-ColorOutput "Will retry with more aggressive cleanup..." -Type Warning
-            Start-Sleep -Seconds 2
-        }
-    }
-    }
-}
-
-# Save build info after successful startup
-if ($landoStarted) {
-    Write-ColorOutput "" -Type Info
-    Write-ColorOutput "Saving build state..." -Type Info
-    Set-LandoBuildInfo -LandoYmlHash $currentLandoHash -ContainerState "running"
-    Write-ColorOutput "Build state saved to .lando-build-info" -Type Success
-}
-
-if (-not $landoStarted) {
-    Write-ColorOutput "Failed to start Lando after $maxAttempts attempts" -Type Error
-    Write-ColorOutput "" -Type Info
-    Write-ColorOutput "Troubleshooting steps:" -Type Info
-    Write-ColorOutput "  1. Check Docker Desktop is running and healthy" -Type Info
-    Write-ColorOutput "  2. Restart Docker Desktop completely" -Type Info
-    Write-ColorOutput "  3. Try manually: lando stop && lando destroy -y && lando start" -Type Info
-    Write-ColorOutput "     (project-specific, won't affect other Lando projects)" -Type Info
-    Write-ColorOutput "  4. Check for port conflicts (80, 443, 3306 in use)" -Type Info
-    Write-ColorOutput "  5. Check Lando logs: lando logs" -Type Info
-    Write-ColorOutput "  6. Update Lando: Visit https://docs.lando.dev/getting-started/installation.html" -Type Info
-    Write-ColorOutput "" -Type Info
-    Write-ColorOutput "If issues persist, check Docker Desktop logs for errors" -Type Info
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[ERROR] Failed to start Lando" -ForegroundColor Red
+    Write-Host "Try: lando destroy -y; lando start" -ForegroundColor Yellow
     exit 1
 }
 
-##############################################################################
-# 5. Authenticate with Terminus
-##############################################################################
+Write-Host "[OK] Lando started!" -ForegroundColor Green
 
-Write-ColorOutput "" -Type Info
-Write-ColorOutput "Step 5: Authenticating with Terminus" -Type Header
+# Authenticate with Terminus
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Magenta
+Write-Host "Authenticating with Terminus" -ForegroundColor Magenta
+Write-Host "========================================" -ForegroundColor Magenta
+Write-Host ""
 
-# Read token from .env
-$envLines = Get-Content ".env"
-$terminusToken = ($envLines | Where-Object { $_ -match "^TERMINUS_TOKEN=" }) -replace "TERMINUS_TOKEN=", ""
+$envVars = @{}
+Get-Content ".env" | ForEach-Object {
+    if ($_ -match '^\s*([^#][^=]*)\s*=\s*(.*)$') {
+        $envVars[$matches[1].Trim()] = $matches[2].Trim() -replace "`r", "" -replace "`n", ""
+    }
+}
 
-Write-ColorOutput "Authenticating with Terminus..." -Type Info
+lando ssh -c "mkdir -p /var/www/.terminus/cache && chmod -R 755 /var/www/.terminus" 2>&1 | Out-Null
+lando terminus auth:login --machine-token="$($envVars['TERMINUS_TOKEN'])" 2>&1 | Out-Null
 
-# Ensure Terminus cache directory exists with proper permissions
-Write-ColorOutput "Setting up Terminus cache directory..." -Type Info
-$ErrorActionPreference = 'Continue'
-& lando ssh -c "mkdir -p /var/www/.terminus/cache && chmod -R 755 /var/www/.terminus" 2>&1 | Out-Null
-$ErrorActionPreference = 'Stop'
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "[OK] Terminus authenticated" -ForegroundColor Green
+} else {
+    Write-Host "[ERROR] Terminus authentication failed" -ForegroundColor Red
+    Write-Host "Check your TERMINUS_TOKEN in .env" -ForegroundColor Yellow
+    exit 1
+}
 
-try {
-    $ErrorActionPreference = 'Continue'
-    $authOutput = & lando terminus auth:login --machine-token=$terminusToken 2>&1
-    $ErrorActionPreference = 'Stop'
+# Pull data
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Magenta
+Write-Host "Syncing Data from Pantheon" -ForegroundColor Magenta
+Write-Host "========================================" -ForegroundColor Magenta
+Write-Host ""
+
+$pullData = Read-Host "Pull database and files? (Y/n)"
+if ($pullData -ne 'n') {
+    Write-Host "[INFO] Pulling from Pantheon..." -ForegroundColor Cyan
+    $env:TERMINUS_MACHINE_TOKEN = $envVars['TERMINUS_TOKEN']
+    lando pull
 
     if ($LASTEXITCODE -eq 0) {
-        Write-ColorOutput "Terminus authentication successful!" -Type Success
-
-        # Verify authentication
-        $ErrorActionPreference = 'Continue'
-        $whoami = & lando terminus auth:whoami 2>&1 | Out-String
-        $ErrorActionPreference = 'Stop'
-
-        if ($whoami -and $whoami.Trim()) {
-            Write-ColorOutput "Logged in as: $($whoami.Trim())" -Type Success
-        }
-    } else {
-        throw "Terminus auth failed with exit code $LASTEXITCODE"
+        Write-Host "[OK] Pull completed!" -ForegroundColor Green
     }
-} catch {
-    Write-ColorOutput "Failed to authenticate with Terminus: $_" -Type Error
-    Write-ColorOutput "Please check your machine token and try again" -Type Info
-    exit 1
 }
 
-##############################################################################
-# 6. Pull Data from Pantheon
-##############################################################################
-
-Write-ColorOutput "Step 6: Syncing Data from Pantheon" -Type Header
-
-Write-ColorOutput "This will pull the database and files from your Pantheon Dev environment" -Type Info
-$pullData = Read-Host "Do you want to pull data now? (Y/n)"
-
-if ($pullData -ne "n" -and $pullData -ne "N") {
-    # Use built-in Lando pull command to get code, database, and files from Pantheon
-    Write-ColorOutput "Pulling code, database, and files from Pantheon Dev..." -Type Info
-    Write-ColorOutput "This will pull WordPress core, plugins, themes, database, and uploads" -Type Info
-    Write-ColorOutput "" -Type Info
-
-    try {
-        # Use lando pull with prompts (user can choose what to pull)
-        # This handles the correct order automatically
-        & lando pull
-
-        if ($LASTEXITCODE -eq 0) {
-            Write-ColorOutput "Pantheon pull completed!" -Type Success
-        } else {
-            Write-ColorOutput "Pantheon pull completed with warnings" -Type Warning
-        }
-
-        # CRITICAL: Verify WordPress core exists after pull
-        Write-ColorOutput "" -Type Info
-        Write-ColorOutput "Verifying WordPress core was pulled..." -Type Info
-
-        $ErrorActionPreference = 'Continue'
-        $wpCheck = & lando ssh -c "test -f /app/wordpress/wp-includes/version.php && echo 'exists' || echo 'missing'" 2>&1 | Out-String
-        $ErrorActionPreference = 'Stop'
-
-        if ($wpCheck -match 'exists') {
-            Write-ColorOutput "WordPress core verified successfully!" -Type Success
-        } else {
-            Write-ColorOutput "" -Type Info
-            Write-ColorOutput "ERROR: WordPress core not found after pull!" -Type Error
-            Write-ColorOutput "" -Type Info
-            Write-ColorOutput "This usually means:" -Type Info
-            Write-ColorOutput "  - You selected 'No' when asked to pull code" -Type Info
-            Write-ColorOutput "  - The code pull from Pantheon failed" -Type Info
-            Write-ColorOutput "  - Network issues interrupted the download" -Type Info
-            Write-ColorOutput "" -Type Info
-            Write-ColorOutput "WordPress core is REQUIRED for database import." -Type Error
-            Write-ColorOutput "Please run the setup again and select 'Yes' when asked to pull code." -Type Info
-            Write-ColorOutput "" -Type Info
-            exit 1
-        }
-    } catch {
-        Write-ColorOutput "Error during Pantheon pull: $_" -Type Warning
-        Write-ColorOutput "You can run 'lando pull' manually to try again" -Type Info
-        exit 1
-    }
-} else {
-    Write-ColorOutput "Skipping data sync. You can run 'lando pull' later to sync data" -Type Info
-}
-
-##############################################################################
-# 7. Complete!
-##############################################################################
-
-Write-ColorOutput "Setup Complete!" -Type Header
-
-Write-Host @"
-
-Your WordPress + Pantheon local development environment is ready!
-
-[SITES]
-   Site URL:      https://wordpress-pantheon.lndo.site
-   Admin URL:     https://wordpress-pantheon.lndo.site/wp-admin
-   PhpMyAdmin:    https://pma.wordpress-pantheon.lndo.site
-
-[COMMANDS]
-   lando start           - Start the development environment
-   lando stop            - Stop the development environment
-   lando pull-db         - Pull database from Pantheon Dev
-   lando pull-files      - Pull files from Pantheon Dev
-   lando wp              - Run WP-CLI commands
-   lando terminus        - Run Terminus commands
-
-[DOCUMENTATION]
-   README.md             - Full documentation
-   SETUP.md              - Detailed setup guide
-   SECURITY.md           - Security best practices
-   QUICK-REFERENCE.md    - Command reference
-
-"@
-
-# Check if this is a fresh Lando installation and provide window guidance
-if ($env:QUICKSTART_PATH_REFRESHED -eq "true") {
-    Write-Host ""
-    Write-ColorOutput "IMPORTANT: PowerShell Window Sessions" -Type Header
-    Write-Host @"
-
-[OK] THIS PowerShell window has refreshed PATH - Lando commands will work here
-[INFO] Other PowerShell windows opened BEFORE installation will NOT have Lando in PATH
-[INFO] To use Lando in a different window, you must open a NEW PowerShell window
-
-To test in any window, run:
-   lando --version
-
-If you get "command not found" in another window:
-   1. Close that PowerShell window
-   2. Open a NEW PowerShell window
-   3. Run: lando --version (should work now)
-
-QUICK FIX for old windows (run in any window to refresh PATH):
-   `$env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
-   lando --version
-
-"@
-}
-
-Write-ColorOutput "Setup completed successfully!" -Type Success
+# Done!
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Magenta
+Write-Host "Setup Complete!" -ForegroundColor Magenta
+Write-Host "========================================" -ForegroundColor Magenta
+Write-Host ""
+Write-Host "Your site is ready!" -ForegroundColor Green
+Write-Host ""
+Write-Host "Site URL:  https://wordpress-pantheon.lndo.site" -ForegroundColor Cyan
+Write-Host "Admin:     https://wordpress-pantheon.lndo.site/wp-admin" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "Commands:" -ForegroundColor Yellow
+Write-Host "  lando start      - Start environment (15-30s)" -ForegroundColor Gray
+Write-Host "  lando stop       - Stop environment" -ForegroundColor Gray
+Write-Host "  lando pull-db    - Pull database" -ForegroundColor Gray
+Write-Host "  lando wp         - Run WP-CLI commands" -ForegroundColor Gray
+Write-Host ""
+Write-Host "Performance Tip:" -ForegroundColor Yellow
+Write-Host "  For 5-10x faster performance, use WSL2:" -ForegroundColor Gray
+Write-Host "    wsl" -ForegroundColor Gray
+Write-Host "    cd ~" -ForegroundColor Gray
+Write-Host "    git clone <repo>" -ForegroundColor Gray
+Write-Host "    ./quickstart.sh" -ForegroundColor Gray
+Write-Host ""
