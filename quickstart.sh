@@ -801,6 +801,52 @@ for attempt in $(seq 1 $MAX_ATTEMPTS); do
     if echo "$LANDO_INFO" | grep -q '\[' && ! echo "$LANDO_INFO" | grep -q '"service":\s*\[\s*\]'; then
         print_success "Lando started successfully!"
         LANDO_STARTED=true
+
+        # Install Lando SSL certificate to prevent browser warnings
+        echo ""
+        print_info "Installing Lando SSL certificate..."
+        LANDO_CERT_PATH="$HOME/.lando/certs/lndo.site.pem"
+
+        if [ -f "$LANDO_CERT_PATH" ]; then
+            if [[ "$OS" == "macos" ]]; then
+                # macOS: Add to System keychain
+                if security find-certificate -c "lndo.site" -p /Library/Keychains/System.keychain >/dev/null 2>&1; then
+                    print_success "Lando SSL certificate already trusted"
+                else
+                    if sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$LANDO_CERT_PATH" 2>/dev/null; then
+                        print_success "Lando SSL certificate installed successfully!"
+                        print_info "You won't see browser security warnings for *.lndo.site domains"
+                    else
+                        print_warning "Could not install SSL certificate automatically"
+                        print_info "You may see browser security warnings for https://wordpress-pantheon.lndo.site"
+                        print_info "This is safe - just click 'Advanced' -> 'Proceed' in your browser"
+                    fi
+                fi
+            else
+                # Linux: Add to ca-certificates (if available)
+                if command -v update-ca-certificates >/dev/null 2>&1; then
+                    if [ -f "/usr/local/share/ca-certificates/lndo.site.crt" ]; then
+                        print_success "Lando SSL certificate already trusted"
+                    else
+                        if sudo cp "$LANDO_CERT_PATH" /usr/local/share/ca-certificates/lndo.site.crt 2>/dev/null && \
+                           sudo update-ca-certificates 2>/dev/null; then
+                            print_success "Lando SSL certificate installed successfully!"
+                            print_info "You won't see browser security warnings for *.lndo.site domains"
+                        else
+                            print_warning "Could not install SSL certificate automatically"
+                            print_info "You may see browser security warnings (safe to bypass)"
+                        fi
+                    fi
+                else
+                    print_info "Automatic SSL certificate installation not available on this system"
+                    print_info "You may see browser security warnings (safe to bypass)"
+                fi
+            fi
+        else
+            print_warning "Lando certificate not found at expected location"
+            print_info "You may see browser security warnings (safe to bypass)"
+        fi
+
         break
     else
         if [ $attempt -lt $MAX_ATTEMPTS ]; then

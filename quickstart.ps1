@@ -1024,6 +1024,40 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
         if ($containersHealthy) {
             Write-ColorOutput "Lando started successfully!" -Type Success
             $landoStarted = $true
+
+            # Install Lando SSL certificate to prevent browser warnings
+            Write-ColorOutput "" -Type Info
+            Write-ColorOutput "Installing Lando SSL certificate..." -Type Info
+            $landoCertPath = Join-Path $env:USERPROFILE ".lando\certs\lndo.site.pem"
+
+            if (Test-Path $landoCertPath) {
+                try {
+                    # Check if certificate is already installed
+                    $certThumbprint = (Get-PfxCertificate -FilePath $landoCertPath -ErrorAction SilentlyContinue).Thumbprint
+                    $certExists = $false
+
+                    if ($certThumbprint) {
+                        $certExists = Get-ChildItem -Path Cert:\LocalMachine\Root | Where-Object { $_.Thumbprint -eq $certThumbprint }
+                    }
+
+                    if ($certExists) {
+                        Write-ColorOutput "Lando SSL certificate already trusted" -Type Success
+                    } else {
+                        # Import certificate to Trusted Root Certification Authorities
+                        Import-Certificate -FilePath $landoCertPath -CertStoreLocation Cert:\LocalMachine\Root -ErrorAction Stop | Out-Null
+                        Write-ColorOutput "Lando SSL certificate installed successfully!" -Type Success
+                        Write-ColorOutput "You won't see browser security warnings for *.lndo.site domains" -Type Info
+                    }
+                } catch {
+                    Write-ColorOutput "Could not install SSL certificate automatically: $_" -Type Warning
+                    Write-ColorOutput "You may see browser security warnings for https://wordpress-pantheon.lndo.site" -Type Info
+                    Write-ColorOutput "This is safe - just click 'Advanced' -> 'Proceed' in your browser" -Type Info
+                }
+            } else {
+                Write-ColorOutput "Lando certificate not found at expected location" -Type Warning
+                Write-ColorOutput "You may see browser security warnings (safe to bypass)" -Type Info
+            }
+
             break
         } else {
             if ($hasErrors) {
