@@ -984,14 +984,29 @@ $envLines = Get-Content ".env"
 $terminusToken = ($envLines | Where-Object { $_ -match "^TERMINUS_TOKEN=" }) -replace "TERMINUS_TOKEN=", ""
 
 Write-ColorOutput "Authenticating with Terminus..." -Type Info
+
+# Ensure Terminus cache directory exists with proper permissions
+Write-ColorOutput "Setting up Terminus cache directory..." -Type Info
+$ErrorActionPreference = 'Continue'
+& lando ssh -c "mkdir -p /var/www/.terminus/cache && chmod -R 755 /var/www/.terminus" 2>&1 | Out-Null
+$ErrorActionPreference = 'Stop'
+
 try {
-    & lando terminus auth:login --machine-token=$terminusToken
+    $ErrorActionPreference = 'Continue'
+    $authOutput = & lando terminus auth:login --machine-token=$terminusToken 2>&1
+    $ErrorActionPreference = 'Stop'
+
     if ($LASTEXITCODE -eq 0) {
         Write-ColorOutput "Terminus authentication successful!" -Type Success
 
         # Verify authentication
-        $whoami = & lando terminus auth:whoami
-        Write-ColorOutput "Logged in as: $whoami" -Type Success
+        $ErrorActionPreference = 'Continue'
+        $whoami = & lando terminus auth:whoami 2>&1 | Out-String
+        $ErrorActionPreference = 'Stop'
+
+        if ($whoami -and $whoami.Trim()) {
+            Write-ColorOutput "Logged in as: $($whoami.Trim())" -Type Success
+        }
     } else {
         throw "Terminus auth failed with exit code $LASTEXITCODE"
     }

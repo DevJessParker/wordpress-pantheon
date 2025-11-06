@@ -827,7 +827,12 @@ source .env
 set +a
 
 print_info "Authenticating with Terminus..."
-if lando terminus auth:login --machine-token="$TERMINUS_TOKEN"; then
+
+# Ensure Terminus cache directory exists with proper permissions
+print_info "Setting up Terminus cache directory..."
+lando ssh -c "mkdir -p /var/www/.terminus/cache && chmod -R 755 /var/www/.terminus" 2>/dev/null || true
+
+if lando terminus auth:login --machine-token="$TERMINUS_TOKEN" 2>/dev/null; then
     print_success "Terminus authentication successful!"
 
     # Verify authentication
