@@ -47,6 +47,73 @@ print_header() {
     echo ""
 }
 
+# Helper function to get SHA256 hash of a file
+get_file_hash() {
+    local file_path="$1"
+
+    if [ ! -f "$file_path" ]; then
+        echo ""
+        return 1
+    fi
+
+    # Try different hash commands based on availability
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$file_path" | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$file_path" | awk '{print $1}'
+    else
+        echo ""
+        return 1
+    fi
+}
+
+# Helper function to read build info
+get_lando_build_info() {
+    local build_info_path=".lando-build-info"
+
+    if [ ! -f "$build_info_path" ]; then
+        echo ""
+        return 1
+    fi
+
+    cat "$build_info_path"
+}
+
+# Helper function to write build info
+set_lando_build_info() {
+    local lando_yml_hash="$1"
+    local container_state="$2"
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    cat > .lando-build-info <<EOF
+{
+  "lastBuildTime": "$timestamp",
+  "landoYmlHash": "$lando_yml_hash",
+  "lastSuccessfulStart": "$timestamp",
+  "containerState": "$container_state"
+}
+EOF
+}
+
+# Helper function to check container state
+test_container_state() {
+    local lando_info=$(lando info --format json 2>/dev/null || echo "")
+
+    # Check if lando info returned valid JSON with services
+    if echo "$lando_info" | grep -q '\[' && ! echo "$lando_info" | grep -q '"service":\s*\[\s*\]'; then
+        # Containers exist, check if running
+        local container_list=$(lando list --format json 2>/dev/null || echo "")
+
+        if echo "$container_list" | grep -q 'wordpress-pantheon' && echo "$container_list" | grep -q '"running"\s*:\s*"true"'; then
+            echo "running"
+        else
+            echo "stopped"
+        fi
+    else
+        echo "missing"
+    fi
+}
+
 # Function to extract UUID from various input formats
 extract_pantheon_uuid() {
     local input="$1"
@@ -86,6 +153,8 @@ extract_pantheon_uuid() {
 # Parse arguments
 SKIP_LANDO_INSTALL=false
 LANDO_INSTALL_PATH=""
+FORCE_REBUILD=false
+QUICK_START=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -96,6 +165,14 @@ while [[ $# -gt 0 ]]; do
         --lando-install-path)
             LANDO_INSTALL_PATH="$2"
             shift 2
+            ;;
+        --force)
+            FORCE_REBUILD=true
+            shift
+            ;;
+        --quick-start)
+            QUICK_START=true
+            shift
             ;;
         --help|-h)
             cat <<EOF
@@ -110,12 +187,25 @@ Options:
   --lando-install-path <path>    Custom installation path for Lando
                                  Default (macOS): /usr/local/bin
                                  Default (Linux): /usr/local/bin
+  --force                        Force full rebuild (destroy existing containers)
+  --quick-start                  Skip container rebuild if possible (fastest startup)
   --help, -h                     Show this help message
+
+Container Orchestration:
+  By default, the script intelligently detects if containers need to be rebuilt:
+  - First run: Full build (3-5 minutes)
+  - Config unchanged + containers exist: Fast restart (30 seconds)
+  - Config changed: Full rebuild
+
+  Use --force to always do a full rebuild (useful if containers are corrupted)
+  Use --quick-start to skip rebuild checks entirely (fastest, assumes healthy containers)
 
 Examples:
   sudo ./quickstart.sh
   sudo ./quickstart.sh --lando-install-path "/opt/lando"
   sudo ./quickstart.sh --skip-lando-install
+  sudo ./quickstart.sh --force
+  sudo ./quickstart.sh --quick-start
 
 This script will:
   1. Check for prerequisites (Git, Docker)
@@ -739,56 +829,123 @@ if [ -d "vendor" ] && [ ! -f "vendor/autoload.php" ]; then
     rm -rf vendor/
 fi
 
-# Stop this project's containers (project-specific, doesn't affect other Lando projects)
-print_info "Stopping wordpress-pantheon containers if running..."
-lando stop >/dev/null 2>&1
-sleep 2
+# Smart Container Orchestration
+# Determine if we need full rebuild, fast restart, or can use existing containers
+print_info "Analyzing container state..."
 
-# Destroy existing wordpress-pantheon project for clean slate (project-specific)
-print_info "Destroying existing project containers for clean start..."
+CURRENT_LANDO_HASH=$(get_file_hash ".lando.yml")
+PREVIOUS_BUILD_INFO=$(get_lando_build_info)
+CONTAINER_STATE=$(test_container_state)
 
-# Check if project exists first
-PROJECT_INFO=$(lando info --format json 2>/dev/null || echo "")
+NEEDS_REBUILD=false
+NEEDS_RESTART=false
+CAN_USE_EXISTING=false
 
-if echo "$PROJECT_INFO" | grep -q '\[' && echo "$PROJECT_INFO" | grep -q 'wordpress-pantheon'; then
-    # Project exists, destroy it
-    lando destroy -y >/dev/null 2>&1
-    sleep 2
-    print_success "Existing project destroyed - starting fresh build..."
+# Decision logic
+if [ "$FORCE_REBUILD" = true ]; then
+    print_info "Force rebuild requested (--force flag)"
+    NEEDS_REBUILD=true
+elif [ "$QUICK_START" = true ]; then
+    print_info "Quick start requested (--quick-start flag) - using existing containers"
+    CAN_USE_EXISTING=true
+elif [ -z "$PREVIOUS_BUILD_INFO" ]; then
+    print_info "First run detected - full build required"
+    NEEDS_REBUILD=true
 else
-    print_success "No existing project found - proceeding with fresh build..."
+    # Extract hash from previous build info (simple JSON parsing)
+    PREVIOUS_HASH=$(echo "$PREVIOUS_BUILD_INFO" | grep -o '"landoYmlHash": "[^"]*"' | cut -d'"' -f4)
+
+    if [ "$PREVIOUS_HASH" != "$CURRENT_LANDO_HASH" ]; then
+        print_info "Configuration changed - full rebuild required"
+        print_info "  Previous hash: ${PREVIOUS_HASH:0:16}..."
+        print_info "  Current hash:  ${CURRENT_LANDO_HASH:0:16}..."
+        NEEDS_REBUILD=true
+    elif [ "$CONTAINER_STATE" = "missing" ]; then
+        print_info "Containers not found - full build required"
+        NEEDS_REBUILD=true
+    elif [ "$CONTAINER_STATE" = "stopped" ]; then
+        print_info "Containers exist but stopped - fast restart possible"
+        NEEDS_RESTART=true
+    elif [ "$CONTAINER_STATE" = "running" ]; then
+        print_info "Containers already running - verifying health..."
+        CAN_USE_EXISTING=true
+    else
+        print_warning "Unknown container state - full rebuild required"
+        NEEDS_REBUILD=true
+    fi
 fi
 
-print_info "Starting Lando... (this may take several minutes on first run)"
+# Execute decision
+if [ "$NEEDS_REBUILD" = true ]; then
+    echo ""
+    print_info "Performing full rebuild (this will take 3-5 minutes)..."
+    print_info "  - Stopping containers..."
+
+    # Stop containers
+    lando stop >/dev/null 2>&1
+    sleep 2
+
+    print_info "  - Destroying old containers..."
+
+    # Destroy containers
+    lando destroy -y >/dev/null 2>&1
+    sleep 2
+
+    print_success "  - Ready for fresh build"
+elif [ "$NEEDS_RESTART" = true ]; then
+    echo ""
+    print_info "Fast restart (this will take ~30 seconds)..."
+    print_info "  - No rebuild needed, just restarting containers"
+elif [ "$CAN_USE_EXISTING" = true ]; then
+    echo ""
+    print_info "Using existing containers (instant startup)..."
+    print_info "  - Skipping rebuild and restart"
+fi
 
 LANDO_STARTED=false
 MAX_ATTEMPTS=3
 
-for attempt in $(seq 1 $MAX_ATTEMPTS); do
-    if [ $attempt -eq 1 ]; then
-        print_info "Starting Lando (attempt $attempt/$MAX_ATTEMPTS)..."
-        lando start
-    elif [ $attempt -eq 2 ]; then
-        print_warning "First attempt failed. Destroying and starting fresh (attempt $attempt/$MAX_ATTEMPTS)..."
-        # Project-specific stop (doesn't affect other Lando projects)
-        lando stop >/dev/null 2>&1
-        sleep 2
-        # Gracefully handle destroy warnings (project-specific)
-        lando destroy -y >/dev/null 2>&1
-        sleep 2
-        lando start
+# Skip lando start if we can use existing containers
+if [ "$CAN_USE_EXISTING" = true ]; then
+    echo ""
+    print_info "Containers already running - verifying health..."
+    LANDO_STARTED=true
+    # Will verify health below
+else
+    # Need to start or restart containers
+    if [ "$NEEDS_RESTART" = true ]; then
+        echo ""
+        print_info "Starting existing containers..."
     else
-        print_warning "Second attempt failed. Performing aggressive cleanup (attempt $attempt/$MAX_ATTEMPTS)..."
-        # Project-specific stop (doesn't affect other Lando projects)
-        lando stop >/dev/null 2>&1
-        sleep 2
-        # Gracefully handle destroy warnings (project-specific, cleans up this project's resources)
-        lando destroy -y >/dev/null 2>&1
-        sleep 2
-        # Note: Removed 'docker system prune' - too aggressive, affects all Docker projects
-        # lando destroy already cleans up this project's containers, networks, and volumes
-        lando start
+        echo ""
+        print_info "Starting Lando... (this may take several minutes on first run)"
     fi
+
+    for attempt in $(seq 1 $MAX_ATTEMPTS); do
+        if [ $attempt -eq 1 ]; then
+            print_info "Starting Lando (attempt $attempt/$MAX_ATTEMPTS)..."
+            lando start
+        elif [ $attempt -eq 2 ]; then
+            print_warning "First attempt failed. Destroying and starting fresh (attempt $attempt/$MAX_ATTEMPTS)..."
+            # Project-specific stop (doesn't affect other Lando projects)
+            lando stop >/dev/null 2>&1
+            sleep 2
+            # Gracefully handle destroy warnings (project-specific)
+            lando destroy -y >/dev/null 2>&1
+            sleep 2
+            lando start
+        else
+            print_warning "Second attempt failed. Performing aggressive cleanup (attempt $attempt/$MAX_ATTEMPTS)..."
+            # Project-specific stop (doesn't affect other Lando projects)
+            lando stop >/dev/null 2>&1
+            sleep 2
+            # Gracefully handle destroy warnings (project-specific, cleans up this project's resources)
+            lando destroy -y >/dev/null 2>&1
+            sleep 2
+            # Note: Removed 'docker system prune' - too aggressive, affects all Docker projects
+            # lando destroy already cleans up this project's containers, networks, and volumes
+            lando start
+        fi
 
     # Always verify containers are actually running, regardless of exit codes
     sleep 5
@@ -852,7 +1009,16 @@ for attempt in $(seq 1 $MAX_ATTEMPTS); do
             sleep 2
         fi
     fi
-done
+    done
+fi
+
+# Save build info after successful startup
+if [ "$LANDO_STARTED" = true ]; then
+    echo ""
+    print_info "Saving build state..."
+    set_lando_build_info "$CURRENT_LANDO_HASH" "running"
+    print_success "Build state saved to .lando-build-info"
+fi
 
 if [ "$LANDO_STARTED" = false ]; then
     print_error "Failed to start Lando after $MAX_ATTEMPTS attempts"

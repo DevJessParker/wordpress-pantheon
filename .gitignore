@@ -25,6 +25,7 @@ backups/
 # Lando
 .lando.yml
 .lando.local.yml
+.lando-build-info
 
 # Test scripts (for development only)
 test-uuid-extraction.ps1

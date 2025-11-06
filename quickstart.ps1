@@ -8,6 +8,8 @@
 param(
     [switch]$SkipLandoInstall,
     [string]$LandoInstallPath = "",
+    [switch]$Force,
+    [switch]$QuickStart,
     [switch]$Help
 )
 
@@ -80,6 +82,88 @@ function Write-ColorOutput {
     }
 }
 
+# Helper function to get SHA256 hash of a file
+function Get-FileHashSHA256 {
+    param(
+        [string]$FilePath
+    )
+
+    if (-not (Test-Path $FilePath)) {
+        return $null
+    }
+
+    try {
+        $hash = Get-FileHash -Path $FilePath -Algorithm SHA256
+        return $hash.Hash
+    } catch {
+        return $null
+    }
+}
+
+# Helper function to read build info
+function Get-LandoBuildInfo {
+    $buildInfoPath = ".lando-build-info"
+
+    if (-not (Test-Path $buildInfoPath)) {
+        return $null
+    }
+
+    try {
+        $content = Get-Content -Path $buildInfoPath -Raw | ConvertFrom-Json
+        return $content
+    } catch {
+        return $null
+    }
+}
+
+# Helper function to write build info
+function Set-LandoBuildInfo {
+    param(
+        [string]$LandoYmlHash,
+        [string]$ContainerState
+    )
+
+    $buildInfo = @{
+        lastBuildTime = (Get-Date).ToUniversalTime().ToString("o")
+        landoYmlHash = $LandoYmlHash
+        lastSuccessfulStart = (Get-Date).ToUniversalTime().ToString("o")
+        containerState = $ContainerState
+    }
+
+    try {
+        $buildInfo | ConvertTo-Json | Set-Content -Path ".lando-build-info"
+    } catch {
+        Write-ColorOutput "Warning: Could not write build info" -Type Warning
+    }
+}
+
+# Helper function to check container state
+function Test-ContainerState {
+    try {
+        $ErrorActionPreference = 'Continue'
+        $landoInfo = & lando info --format json 2>&1 | Out-String
+        $ErrorActionPreference = 'Stop'
+
+        # Check if lando info returned valid JSON with services
+        if ($landoInfo -match '\[' -and $landoInfo -notmatch '"service":\s*\[\s*\]') {
+            # Containers exist, check if running
+            $ErrorActionPreference = 'Continue'
+            $containerList = & lando list --format json 2>&1 | Out-String
+            $ErrorActionPreference = 'Stop'
+
+            if ($containerList -match 'wordpress-pantheon' -and $containerList -match '"running"\s*:\s*"true"') {
+                return "running"
+            } else {
+                return "stopped"
+            }
+        } else {
+            return "missing"
+        }
+    } catch {
+        return "missing"
+    }
+}
+
 if ($Help) {
     Write-Host @"
 WordPress + Pantheon Quickstart Setup
@@ -92,7 +176,18 @@ Options:
   -SkipLandoInstall           Skip Lando installation check/install
   -LandoInstallPath <path>    Custom installation path for Lando
                               Default: C:\Program Files\Lando
+  -Force                      Force full rebuild (destroy existing containers)
+  -QuickStart                 Skip container rebuild if possible (fastest startup)
   -Help                       Show this help message
+
+Container Orchestration:
+  By default, the script intelligently detects if containers need to be rebuilt:
+  - First run: Full build (3-5 minutes)
+  - Config unchanged + containers exist: Fast restart (30 seconds)
+  - Config changed: Full rebuild
+
+  Use -Force to always do a full rebuild (useful if containers are corrupted)
+  Use -QuickStart to skip rebuild checks entirely (fastest, assumes healthy containers)
 
 Examples:
   Right-click PowerShell -> Run as Administrator, then:
@@ -858,83 +953,139 @@ if ((Test-Path "vendor") -and (-not (Test-Path "vendor/autoload.php"))) {
     Remove-Item -Recurse -Force vendor -ErrorAction SilentlyContinue
 }
 
-# Stop this project's containers (project-specific, doesn't affect other Lando projects)
-Write-ColorOutput "Stopping wordpress-pantheon containers if running..." -Type Info
-$ErrorActionPreference = 'Continue'
-& lando stop 2>&1 | Out-Null
-$ErrorActionPreference = 'Stop'
-Start-Sleep -Seconds 2
+# Smart Container Orchestration
+# Determine if we need full rebuild, fast restart, or can use existing containers
+Write-ColorOutput "Analyzing container state..." -Type Info
 
-# Destroy existing wordpress-pantheon project for clean slate (project-specific)
-Write-ColorOutput "Destroying existing project containers for clean start..." -Type Info
-try {
-    # Check if project exists first
-    $ErrorActionPreference = 'Continue'
-    $projectInfo = & lando info --format json 2>&1 | Out-String
-    $ErrorActionPreference = 'Stop'
+$currentLandoHash = Get-FileHashSHA256 ".lando.yml"
+$previousBuildInfo = Get-LandoBuildInfo
+$containerState = Test-ContainerState
 
-    if ($projectInfo -match '\[' -and $projectInfo -match 'wordpress-pantheon') {
-        # Project exists, destroy it
-        $ErrorActionPreference = 'Continue'
-        & lando destroy -y 2>&1 | Out-Null
-        $ErrorActionPreference = 'Stop'
-        Start-Sleep -Seconds 2
-        Write-ColorOutput "Existing project destroyed - starting fresh build..." -Type Success
-    } else {
-        Write-ColorOutput "No existing project found - proceeding with fresh build..." -Type Success
-    }
-} catch {
-    # Destroy command failed or no project exists - both are fine, continue
-    Write-ColorOutput "No existing project found - proceeding with fresh build..." -Type Success
+$needsRebuild = $false
+$needsRestart = $false
+$canUseExisting = $false
+
+# Decision logic
+if ($Force) {
+    Write-ColorOutput "Force rebuild requested (-Force flag)" -Type Info
+    $needsRebuild = $true
+} elseif ($QuickStart) {
+    Write-ColorOutput "Quick start requested (-QuickStart flag) - using existing containers" -Type Info
+    $canUseExisting = $true
+} elseif ($null -eq $previousBuildInfo) {
+    Write-ColorOutput "First run detected - full build required" -Type Info
+    $needsRebuild = $true
+} elseif ($previousBuildInfo.landoYmlHash -ne $currentLandoHash) {
+    Write-ColorOutput "Configuration changed - full rebuild required" -Type Info
+    Write-ColorOutput "  Previous hash: $($previousBuildInfo.landoYmlHash.Substring(0,16))..." -Type Info
+    Write-ColorOutput "  Current hash:  $($currentLandoHash.Substring(0,16))..." -Type Info
+    $needsRebuild = $true
+} elseif ($containerState -eq "missing") {
+    Write-ColorOutput "Containers not found - full build required" -Type Info
+    $needsRebuild = $true
+} elseif ($containerState -eq "stopped") {
+    Write-ColorOutput "Containers exist but stopped - fast restart possible" -Type Info
+    $needsRestart = $true
+} elseif ($containerState -eq "running") {
+    Write-ColorOutput "Containers already running - verifying health..." -Type Info
+    $canUseExisting = $true
+} else {
+    Write-ColorOutput "Unknown container state - full rebuild required" -Type Warning
+    $needsRebuild = $true
 }
 
-Write-ColorOutput "Starting Lando... (this may take several minutes on first run)" -Type Info
+# Execute decision
+if ($needsRebuild) {
+    Write-ColorOutput "" -Type Info
+    Write-ColorOutput "Performing full rebuild (this will take 3-5 minutes)..." -Type Info
+    Write-ColorOutput "  - Stopping containers..." -Type Info
+
+    # Stop containers
+    $ErrorActionPreference = 'Continue'
+    & lando stop 2>&1 | Out-Null
+    $ErrorActionPreference = 'Stop'
+    Start-Sleep -Seconds 2
+
+    Write-ColorOutput "  - Destroying old containers..." -Type Info
+
+    # Destroy containers
+    $ErrorActionPreference = 'Continue'
+    & lando destroy -y 2>&1 | Out-Null
+    $ErrorActionPreference = 'Stop'
+    Start-Sleep -Seconds 2
+
+    Write-ColorOutput "  - Ready for fresh build" -Type Success
+} elseif ($needsRestart) {
+    Write-ColorOutput "" -Type Info
+    Write-ColorOutput "Fast restart (this will take ~30 seconds)..." -Type Info
+    Write-ColorOutput "  - No rebuild needed, just restarting containers" -Type Info
+} elseif ($canUseExisting) {
+    Write-ColorOutput "" -Type Info
+    Write-ColorOutput "Using existing containers (instant startup)..." -Type Info
+    Write-ColorOutput "  - Skipping rebuild and restart" -Type Info
+}
 
 $landoStarted = $false
 $maxAttempts = 3
 
-for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-    # Capture output to check for errors
-    $startOutput = ""
-
-    if ($attempt -eq 1) {
-        Write-ColorOutput "Starting Lando (attempt $attempt/$maxAttempts)..." -Type Info
-        # Capture output while also displaying it
-        $ErrorActionPreference = 'Continue'
-        $startOutput = & lando start 2>&1 | Tee-Object -Variable tempOutput | Out-String
-        $startOutput = $tempOutput -join "`n"
-        $ErrorActionPreference = 'Stop'
-    } elseif ($attempt -eq 2) {
-        Write-ColorOutput "First attempt failed. Destroying and starting fresh (attempt $attempt/$maxAttempts)..." -Type Warning
-        # Project-specific stop (doesn't affect other Lando projects)
-        & lando stop 2>&1 | Out-Null
-        Start-Sleep -Seconds 2
-        # Gracefully handle destroy warnings (project-specific)
-        $ErrorActionPreference = 'Continue'
-        & lando destroy -y 2>&1 | Out-Null
-        $ErrorActionPreference = 'Stop'
-        Start-Sleep -Seconds 2
-        $ErrorActionPreference = 'Continue'
-        $startOutput = & lando start 2>&1 | Tee-Object -Variable tempOutput | Out-String
-        $startOutput = $tempOutput -join "`n"
-        $ErrorActionPreference = 'Stop'
+# Skip lando start if we can use existing containers
+if ($canUseExisting) {
+    Write-ColorOutput "" -Type Info
+    Write-ColorOutput "Containers already running - verifying health..." -Type Info
+    $landoStarted = $true
+    # Will verify health below
+} else {
+    # Need to start or restart containers
+    if ($needsRestart) {
+        Write-ColorOutput "" -Type Info
+        Write-ColorOutput "Starting existing containers..." -Type Info
     } else {
-        Write-ColorOutput "Second attempt failed. Performing aggressive cleanup (attempt $attempt/$maxAttempts)..." -Type Warning
-        # Project-specific stop (doesn't affect other Lando projects)
-        & lando stop 2>&1 | Out-Null
-        Start-Sleep -Seconds 2
-        # Gracefully handle destroy warnings (project-specific, cleans up this project's resources)
-        $ErrorActionPreference = 'Continue'
-        & lando destroy -y 2>&1 | Out-Null
-        $ErrorActionPreference = 'Stop'
-        Start-Sleep -Seconds 2
-        # Note: Removed 'docker system prune' - too aggressive, affects all Docker projects
-        # lando destroy already cleans up this project's containers, networks, and volumes
-        $ErrorActionPreference = 'Continue'
-        $startOutput = & lando start 2>&1 | Tee-Object -Variable tempOutput | Out-String
-        $startOutput = $tempOutput -join "`n"
-        $ErrorActionPreference = 'Stop'
+        Write-ColorOutput "" -Type Info
+        Write-ColorOutput "Starting Lando... (this may take several minutes on first run)" -Type Info
     }
+
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        # Capture output to check for errors
+        $startOutput = ""
+
+        if ($attempt -eq 1) {
+            Write-ColorOutput "Starting Lando (attempt $attempt/$maxAttempts)..." -Type Info
+            # Capture output while also displaying it
+            $ErrorActionPreference = 'Continue'
+            $startOutput = & lando start 2>&1 | Tee-Object -Variable tempOutput | Out-String
+            $startOutput = $tempOutput -join "`n"
+            $ErrorActionPreference = 'Stop'
+        } elseif ($attempt -eq 2) {
+            Write-ColorOutput "First attempt failed. Destroying and starting fresh (attempt $attempt/$maxAttempts)..." -Type Warning
+            # Project-specific stop (doesn't affect other Lando projects)
+            & lando stop 2>&1 | Out-Null
+            Start-Sleep -Seconds 2
+            # Gracefully handle destroy warnings (project-specific)
+            $ErrorActionPreference = 'Continue'
+            & lando destroy -y 2>&1 | Out-Null
+            $ErrorActionPreference = 'Stop'
+            Start-Sleep -Seconds 2
+            $ErrorActionPreference = 'Continue'
+            $startOutput = & lando start 2>&1 | Tee-Object -Variable tempOutput | Out-String
+            $startOutput = $tempOutput -join "`n"
+            $ErrorActionPreference = 'Stop'
+        } else {
+            Write-ColorOutput "Second attempt failed. Performing aggressive cleanup (attempt $attempt/$maxAttempts)..." -Type Warning
+            # Project-specific stop (doesn't affect other Lando projects)
+            & lando stop 2>&1 | Out-Null
+            Start-Sleep -Seconds 2
+            # Gracefully handle destroy warnings (project-specific, cleans up this project's resources)
+            $ErrorActionPreference = 'Continue'
+            & lando destroy -y 2>&1 | Out-Null
+            $ErrorActionPreference = 'Stop'
+            Start-Sleep -Seconds 2
+            # Note: Removed 'docker system prune' - too aggressive, affects all Docker projects
+            # lando destroy already cleans up this project's containers, networks, and volumes
+            $ErrorActionPreference = 'Continue'
+            $startOutput = & lando start 2>&1 | Tee-Object -Variable tempOutput | Out-String
+            $startOutput = $tempOutput -join "`n"
+            $ErrorActionPreference = 'Stop'
+        }
 
     # Check for critical errors in the output
     $hasErrors = $false
@@ -1075,6 +1226,15 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
             Start-Sleep -Seconds 2
         }
     }
+    }
+}
+
+# Save build info after successful startup
+if ($landoStarted) {
+    Write-ColorOutput "" -Type Info
+    Write-ColorOutput "Saving build state..." -Type Info
+    Set-LandoBuildInfo -LandoYmlHash $currentLandoHash -ContainerState "running"
+    Write-ColorOutput "Build state saved to .lando-build-info" -Type Success
 }
 
 if (-not $landoStarted) {
