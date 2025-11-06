@@ -723,12 +723,12 @@ if [ -d "vendor" ] && [ ! -f "vendor/autoload.php" ]; then
     rm -rf vendor/
 fi
 
-# Stop all Lando services (including global proxy) for clean state
-print_info "Shutting down all Lando services for clean start..."
-lando poweroff >/dev/null 2>&1
-sleep 3
+# Stop this project's containers (project-specific, doesn't affect other Lando projects)
+print_info "Stopping wordpress-pantheon containers if running..."
+lando stop >/dev/null 2>&1
+sleep 2
 
-# Destroy existing wordpress-pantheon project for clean slate
+# Destroy existing wordpress-pantheon project for clean slate (project-specific)
 print_info "Destroying existing project containers for clean start..."
 
 # Check if project exists first
@@ -754,22 +754,23 @@ for attempt in $(seq 1 $MAX_ATTEMPTS); do
         lando start
     elif [ $attempt -eq 2 ]; then
         print_warning "First attempt failed. Destroying and starting fresh (attempt $attempt/$MAX_ATTEMPTS)..."
-        lando poweroff >/dev/null 2>&1
+        # Project-specific stop (doesn't affect other Lando projects)
+        lando stop >/dev/null 2>&1
         sleep 2
-        # Gracefully handle destroy warnings (stderr silenced)
+        # Gracefully handle destroy warnings (project-specific)
         lando destroy -y >/dev/null 2>&1
         sleep 2
         lando start
     else
         print_warning "Second attempt failed. Performing aggressive cleanup (attempt $attempt/$MAX_ATTEMPTS)..."
-        lando poweroff >/dev/null 2>&1
+        # Project-specific stop (doesn't affect other Lando projects)
+        lando stop >/dev/null 2>&1
         sleep 2
-        # Gracefully handle destroy warnings (stderr silenced)
+        # Gracefully handle destroy warnings (project-specific, cleans up this project's resources)
         lando destroy -y >/dev/null 2>&1
-        sleep 3
-        print_info "Cleaning Docker system..."
-        docker system prune -f >/dev/null 2>&1
         sleep 2
+        # Note: Removed 'docker system prune' - too aggressive, affects all Docker projects
+        # lando destroy already cleans up this project's containers, networks, and volumes
         lando start
     fi
 
@@ -797,7 +798,8 @@ if [ "$LANDO_STARTED" = false ]; then
     print_info "Troubleshooting steps:"
     print_info "  1. Check Docker Desktop is running and healthy"
     print_info "  2. Restart Docker Desktop completely"
-    print_info "  3. Try manually: lando poweroff && lando destroy -y && lando start"
+    print_info "  3. Try manually: lando stop && lando destroy -y && lando start"
+    print_info "     (project-specific, won't affect other Lando projects)"
     print_info "  4. Check for port conflicts (80, 443, 3306 in use)"
     print_info "  5. Check Lando logs: lando logs"
     print_info "  6. Update Lando: Visit https://docs.lando.dev/getting-started/installation.html"

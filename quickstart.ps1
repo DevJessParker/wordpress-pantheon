@@ -719,12 +719,12 @@ if ((Test-Path "vendor") -and (-not (Test-Path "vendor/autoload.php"))) {
     Remove-Item -Recurse -Force vendor -ErrorAction SilentlyContinue
 }
 
-# Stop all Lando services (including global proxy) for clean state
-Write-ColorOutput "Shutting down all Lando services for clean start..." -Type Info
-& lando poweroff 2>&1 | Out-Null
-Start-Sleep -Seconds 3
+# Stop this project's containers (project-specific, doesn't affect other Lando projects)
+Write-ColorOutput "Stopping wordpress-pantheon containers if running..." -Type Info
+& lando stop 2>&1 | Out-Null
+Start-Sleep -Seconds 2
 
-# Destroy existing wordpress-pantheon project for clean slate
+# Destroy existing wordpress-pantheon project for clean slate (project-specific)
 Write-ColorOutput "Destroying existing project containers for clean start..." -Type Info
 try {
     # Check if project exists first
@@ -765,9 +765,10 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
         $ErrorActionPreference = 'Stop'
     } elseif ($attempt -eq 2) {
         Write-ColorOutput "First attempt failed. Destroying and starting fresh (attempt $attempt/$maxAttempts)..." -Type Warning
-        & lando poweroff 2>&1 | Out-Null
+        # Project-specific stop (doesn't affect other Lando projects)
+        & lando stop 2>&1 | Out-Null
         Start-Sleep -Seconds 2
-        # Gracefully handle destroy warnings
+        # Gracefully handle destroy warnings (project-specific)
         $ErrorActionPreference = 'Continue'
         & lando destroy -y 2>&1 | Out-Null
         $ErrorActionPreference = 'Stop'
@@ -778,16 +779,16 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
         $ErrorActionPreference = 'Stop'
     } else {
         Write-ColorOutput "Second attempt failed. Performing aggressive cleanup (attempt $attempt/$maxAttempts)..." -Type Warning
-        & lando poweroff 2>&1 | Out-Null
+        # Project-specific stop (doesn't affect other Lando projects)
+        & lando stop 2>&1 | Out-Null
         Start-Sleep -Seconds 2
-        # Gracefully handle destroy warnings
+        # Gracefully handle destroy warnings (project-specific, cleans up this project's resources)
         $ErrorActionPreference = 'Continue'
         & lando destroy -y 2>&1 | Out-Null
         $ErrorActionPreference = 'Stop'
-        Start-Sleep -Seconds 3
-        Write-ColorOutput "Cleaning Docker system..." -Type Info
-        & docker system prune -f 2>&1 | Out-Null
         Start-Sleep -Seconds 2
+        # Note: Removed 'docker system prune' - too aggressive, affects all Docker projects
+        # lando destroy already cleans up this project's containers, networks, and volumes
         $ErrorActionPreference = 'Continue'
         $startOutput = & lando start 2>&1 | Tee-Object -Variable tempOutput | Out-String
         $startOutput = $tempOutput -join "`n"
@@ -907,7 +908,8 @@ if (-not $landoStarted) {
     Write-ColorOutput "Troubleshooting steps:" -Type Info
     Write-ColorOutput "  1. Check Docker Desktop is running and healthy" -Type Info
     Write-ColorOutput "  2. Restart Docker Desktop completely" -Type Info
-    Write-ColorOutput "  3. Try manually: lando poweroff && lando destroy -y && lando start" -Type Info
+    Write-ColorOutput "  3. Try manually: lando stop && lando destroy -y && lando start" -Type Info
+    Write-ColorOutput "     (project-specific, won't affect other Lando projects)" -Type Info
     Write-ColorOutput "  4. Check for port conflicts (80, 443, 3306 in use)" -Type Info
     Write-ColorOutput "  5. Check Lando logs: lando logs" -Type Info
     Write-ColorOutput "  6. Update Lando: Visit https://docs.lando.dev/getting-started/installation.html" -Type Info
