@@ -472,6 +472,46 @@ lando pull-db
 
 **Why this happens**: Windows Git's default `core.autocrlf=true` converts line endings to CRLF on checkout. The `.gitattributes` file in this repo prevents this, but only if Git is configured to respect it.
 
+#### "Terminus keeps asking for my machine token"
+
+**Cause**: The `TERMINUS_TOKEN` in your `.env` file is missing, invalid, or not being loaded correctly.
+
+**Symptoms**:
+```
+? Enter a Pantheon machine token [hidden]
+ERROR ==> POST request to authorize/machine-token failed with code 400
+```
+
+**Fix**:
+1. **Check your `.env` file exists and has the token**:
+   ```bash
+   # Verify .env file exists
+   cat .env | grep TERMINUS_TOKEN
+
+   # Should show: TERMINUS_TOKEN=your-actual-token-here
+   ```
+
+2. **Get a new machine token if needed**:
+   - Visit: https://dashboard.pantheon.io/personal-settings/machine-tokens
+   - Click "Create Token"
+   - Copy the token
+   - Update `.env` with: `TERMINUS_TOKEN=your-new-token`
+
+3. **Verify token format**:
+   - Token should be a long alphanumeric string
+   - No quotes or spaces around the token
+   - No extra characters or line breaks
+   - Example: `TERMINUS_TOKEN=abc123xyz789def456...`
+
+4. **Re-run setup**:
+   ```bash
+   sudo ./quickstart.sh
+   ```
+
+**Why this happens**: The quickstart script and `lando pull` command read `TERMINUS_TOKEN` from your `.env` file. If the file doesn't exist, the token is invalid, or there's a formatting issue, you'll be prompted interactively.
+
+**Prevention**: Always ensure your `.env` file is properly configured with a valid token before running setup.
+
 #### "I see a 404 error when I visit the site"
 
 **Cause**: WordPress isn't installed yet or Composer is still running.

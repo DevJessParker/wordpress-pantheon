@@ -1083,21 +1083,46 @@ set -a
 source .env
 set +a
 
+# Validate token is present
+if [ -z "$TERMINUS_TOKEN" ]; then
+    print_error "TERMINUS_TOKEN not found in .env file"
+    print_info "Please check your .env file contains: TERMINUS_TOKEN=your-machine-token"
+    print_info "Get your token at: https://dashboard.pantheon.io/personal-settings/machine-tokens"
+    exit 1
+fi
+
 print_info "Authenticating with Terminus..."
+print_info "Using machine token from .env file"
 
 # Ensure Terminus cache directory exists with proper permissions
 print_info "Setting up Terminus cache directory..."
 lando ssh -c "mkdir -p /var/www/.terminus/cache && chmod -R 755 /var/www/.terminus" 2>/dev/null || true
 
-if lando terminus auth:login --machine-token="$TERMINUS_TOKEN" 2>/dev/null; then
+# Authenticate with Terminus
+AUTH_OUTPUT=$(lando terminus auth:login --machine-token="$TERMINUS_TOKEN" 2>&1)
+AUTH_EXIT_CODE=$?
+
+if [ $AUTH_EXIT_CODE -eq 0 ]; then
     print_success "Terminus authentication successful!"
 
     # Verify authentication
     WHOAMI=$(lando terminus auth:whoami 2>/dev/null || echo "unknown")
-    print_success "Logged in as: $WHOAMI"
+    if [ "$WHOAMI" != "unknown" ] && [ -n "$WHOAMI" ]; then
+        print_success "Logged in as: $WHOAMI"
+    else
+        print_warning "Authentication may have issues (couldn't verify user)"
+    fi
 else
     print_error "Failed to authenticate with Terminus"
-    print_info "Please check your machine token and try again"
+    echo ""
+    print_info "Error details:"
+    echo "$AUTH_OUTPUT" | grep -i "error" || echo "$AUTH_OUTPUT"
+    echo ""
+    print_info "Troubleshooting:"
+    print_info "  1. Check your machine token is valid"
+    print_info "  2. Get a new token at: https://dashboard.pantheon.io/personal-settings/machine-tokens"
+    print_info "  3. Update your .env file with: TERMINUS_TOKEN=your-new-token"
+    print_info "  4. Make sure the token hasn't expired"
     exit 1
 fi
 
@@ -1114,12 +1139,35 @@ if [[ ! "$PULL_DATA" =~ ^[Nn]$ ]]; then
     # Use built-in Lando pull command to get code, database, and files from Pantheon
     print_info "Pulling code, database, and files from Pantheon Dev..."
     print_info "This will pull WordPress core, plugins, themes, database, and uploads"
+    print_info "Using authenticated Terminus session (no token prompt needed)"
     echo ""
 
-    if lando pull; then
+    # Export TERMINUS_MACHINE_TOKEN for lando pull to use
+    # This prevents the interactive token prompt
+    export TERMINUS_MACHINE_TOKEN="$TERMINUS_TOKEN"
+
+    # Run lando pull with the token available in the environment
+    PULL_OUTPUT=$(lando pull 2>&1)
+    PULL_EXIT_CODE=$?
+
+    # Display the output
+    echo "$PULL_OUTPUT"
+
+    if [ $PULL_EXIT_CODE -eq 0 ]; then
         print_success "Pantheon pull completed!"
     else
-        print_warning "Pantheon pull completed with warnings"
+        # Check if the error is authentication-related
+        if echo "$PULL_OUTPUT" | grep -qi "401\|unauthorized\|authenticate\|token"; then
+            echo ""
+            print_error "Authentication failed during pull"
+            print_info "Your machine token may be invalid or expired"
+            print_info "Get a new token at: https://dashboard.pantheon.io/personal-settings/machine-tokens"
+            print_info "Then update your .env file with: TERMINUS_TOKEN=your-new-token"
+            exit 1
+        else
+            print_warning "Pantheon pull completed with warnings (see output above)"
+            print_info "You may need to run 'lando pull' manually after setup"
+        fi
     fi
 
     # CRITICAL: Verify WordPress core exists after pull

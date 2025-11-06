@@ -51,6 +51,9 @@ services:
         WP_DEBUG_DISPLAY: 'false'
         # PERFORMANCE: Enable Composer cache for faster dependency installation
         COMPOSER_CACHE_DIR: '/var/www/.composer/cache'
+        # Pantheon authentication - loads from .env file
+        # This prevents interactive token prompts during lando pull
+        TERMINUS_MACHINE_TOKEN: '${TERMINUS_TOKEN}'
 
   database:
     type: mysql:8.0
