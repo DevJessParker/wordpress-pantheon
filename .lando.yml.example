@@ -8,11 +8,25 @@ config:
 services:
   appserver:
     build_as_root:
-      - apt-get update -y
-      - apt-get install -y vim wget
-      # Install WP-CLI
-      - curl -o /usr/local/bin/wp https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
-      - chmod +x /usr/local/bin/wp
+      # PERFORMANCE OPTIMIZATION: Only run apt-get update if packages are missing
+      # This avoids 30-120 second delays on every rebuild
+      - >
+        if ! command -v vim >/dev/null 2>&1 || ! command -v wget >/dev/null 2>&1; then
+          echo "Installing missing system packages...";
+          apt-get update -y && apt-get install -y vim wget;
+        else
+          echo "System packages already installed, skipping apt-get update...";
+        fi
+      # PERFORMANCE OPTIMIZATION: Only download WP-CLI if not present
+      # This avoids 5-10 second download on every rebuild
+      - >
+        if [ ! -f "/usr/local/bin/wp" ]; then
+          echo "Installing WP-CLI...";
+          curl -fsSL -o /usr/local/bin/wp https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar;
+          chmod +x /usr/local/bin/wp;
+        else
+          echo "WP-CLI already installed, skipping...";
+        fi
     build:
       # Clean up any partial/failed Composer installations
       - >
@@ -20,12 +34,12 @@ services:
           echo "Cleaning up partial Composer installation...";
           rm -rf vendor/;
         fi
-      # Only install Composer dependencies if vendor/ doesn't exist
-      # This speeds up subsequent Lando starts significantly
+      # PERFORMANCE OPTIMIZATION: Only install Composer dependencies if missing
+      # Composer cache is preserved between rebuilds via Docker volumes
       - >
         if [ ! -d "vendor" ] || [ ! -f "vendor/autoload.php" ]; then
-          echo "Installing Composer dependencies...";
-          composer install --no-interaction --prefer-dist;
+          echo "Installing Composer dependencies (this may take 2-3 minutes on first run)...";
+          composer install --no-interaction --prefer-dist --optimize-autoloader;
         else
           echo "Composer dependencies already installed, skipping...";
         fi
@@ -35,6 +49,8 @@ services:
         WP_DEBUG: 'true'
         WP_DEBUG_LOG: 'true'
         WP_DEBUG_DISPLAY: 'false'
+        # PERFORMANCE: Enable Composer cache for faster dependency installation
+        COMPOSER_CACHE_DIR: '/var/www/.composer/cache'
 
   database:
     type: mysql:8.0

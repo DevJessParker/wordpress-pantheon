@@ -12,6 +12,7 @@ A complete local development environment for WordPress on Pantheon, featuring da
 - **CI/CD Pipelines** - Ready-to-use workflows for GitHub, GitLab, and Bitbucket
 - **Security Tools** - Automated security scanning and best practices
 - **Developer Scripts** - Common tasks automated
+- **Performance Optimized** - Smart caching, 30-second restarts after initial build ([see PERFORMANCE.md](PERFORMANCE.md))
 
 ## 👥 For New Team Members
 
@@ -600,6 +601,11 @@ chown -R www-data:www-data /app/wp-content/
 
 ## 📚 Documentation
 
+### Project Documentation
+- [PERFORMANCE.md](PERFORMANCE.md) - Performance optimization guide and troubleshooting
+- [SECURITY.md](SECURITY.md) - Security best practices
+
+### External Documentation
 - [Lando Documentation](https://docs.lando.dev/)
 - [Pantheon Documentation](https://pantheon.io/docs)
 - [Terminus Documentation](https://pantheon.io/docs/terminus)

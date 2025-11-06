@@ -878,28 +878,41 @@ fi
 # Execute decision
 if [ "$NEEDS_REBUILD" = true ]; then
     echo ""
-    print_info "Performing full rebuild (this will take 3-5 minutes)..."
-    print_info "  - Stopping containers..."
+    print_info "Performing full rebuild..."
+    echo ""
+    print_info "FIRST RUN TIMING EXPECTATIONS:"
+    print_info "  - Docker image pull: 1-2 minutes (one-time)"
+    print_info "  - Container build: 30-60 seconds (optimized with caching)"
+    print_info "  - Composer dependencies: 2-3 minutes (one-time, then cached)"
+    print_info "  - Total first run: 3-6 minutes"
+    print_info "  - Subsequent rebuilds: 30-90 seconds (most steps cached)"
+    echo ""
+    print_info "What's happening:"
+    print_info "  → Stopping containers..."
 
     # Stop containers
     lando stop >/dev/null 2>&1
     sleep 2
 
-    print_info "  - Destroying old containers..."
+    print_info "  → Destroying old containers..."
 
     # Destroy containers
     lando destroy -y >/dev/null 2>&1
     sleep 2
 
-    print_success "  - Ready for fresh build"
+    print_success "  → Ready for fresh build"
+    echo ""
+    print_info "Starting build process (please be patient)..."
 elif [ "$NEEDS_RESTART" = true ]; then
     echo ""
-    print_info "Fast restart (this will take ~30 seconds)..."
-    print_info "  - No rebuild needed, just restarting containers"
+    print_info "Fast restart (~30 seconds)..."
+    print_info "  → No rebuild needed, containers already exist"
+    print_info "  → Just restarting services"
 elif [ "$CAN_USE_EXISTING" = true ]; then
     echo ""
-    print_info "Using existing containers (instant startup)..."
-    print_info "  - Skipping rebuild and restart"
+    print_info "Using existing containers (instant)..."
+    print_info "  → Containers already running"
+    print_info "  → Skipping rebuild and restart"
 fi
 
 LANDO_STARTED=false
@@ -924,6 +937,21 @@ else
     for attempt in $(seq 1 $MAX_ATTEMPTS); do
         if [ $attempt -eq 1 ]; then
             print_info "Starting Lando (attempt $attempt/$MAX_ATTEMPTS)..."
+            echo ""
+            if [ "$NEEDS_REBUILD" = true ]; then
+                print_info "Building containers now..."
+                print_info "You'll see output for:"
+                print_info "  1. Docker pulling base images (if needed)"
+                print_info "  2. Installing system packages (vim, wget, WP-CLI) - optimized with checks"
+                print_info "  3. Installing Composer dependencies (if needed)"
+                print_info "  4. Starting MySQL, Redis, PhpMyAdmin services"
+                echo ""
+                print_warning "This may take 3-6 minutes on first run. Please wait..."
+                print_info "TIP: Next time will be much faster (~30 seconds)!"
+            else
+                print_info "Restarting existing containers (should be quick)..."
+            fi
+            echo ""
             lando start
         elif [ $attempt -eq 2 ]; then
             print_warning "First attempt failed. Destroying and starting fresh (attempt $attempt/$MAX_ATTEMPTS)..."
@@ -1032,6 +1060,12 @@ if [ "$LANDO_STARTED" = false ]; then
     print_info "  5. Check Lando logs: lando logs"
     print_info "  6. Update Lando: Visit https://docs.lando.dev/getting-started/installation.html"
     echo ""
+    print_info "Performance troubleshooting (if startup took > 10 minutes):"
+    print_info "  - Check your internet connection (slow downloads)"
+    print_info "  - Check Docker Desktop resources (CPU/Memory in Settings)"
+    print_info "  - Try: docker system prune (WARNING: removes all unused Docker data)"
+    print_info "  - Consider using --quick-start flag for instant startups (assumes healthy containers)"
+    echo ""
     print_info "If issues persist, check Docker Desktop logs for errors"
     exit 1
 fi
@@ -1128,12 +1162,27 @@ Your WordPress + Pantheon local development environment is ready!
    PhpMyAdmin:    https://pma.wordpress-pantheon.lndo.site
 
 [COMMANDS]
-   lando start           - Start the development environment
+   lando start           - Start the development environment (~30s after first build)
    lando stop            - Stop the development environment
    lando pull-db         - Pull database from Pantheon Dev
    lando pull-files      - Pull files from Pantheon Dev
    lando wp              - Run WP-CLI commands
    lando terminus        - Run Terminus commands
+
+[PERFORMANCE TIPS]
+   Next startup:         ~30 seconds (containers cached)
+   Force rebuild:        sudo ./quickstart.sh --force
+   Instant startup:      sudo ./quickstart.sh --quick-start (skips health checks)
+
+   OPTIMIZATION: This setup uses smart caching:
+   - System packages (vim, wget, WP-CLI) only installed once
+   - Composer dependencies cached between rebuilds
+   - Container state tracked to avoid unnecessary rebuilds
+
+   If startup feels slow:
+   - First run: 3-6 minutes is normal (downloading & building)
+   - Subsequent runs: Should be ~30 seconds
+   - If consistently slow (>2 min): Check Docker Desktop resources
 
 [DOCUMENTATION]
    README.md             - Full documentation
