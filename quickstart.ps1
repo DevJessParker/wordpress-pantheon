@@ -1094,55 +1094,6 @@ if (-not $landoStarted) {
 }
 
 ##############################################################################
-# 4.5. Ensure WordPress Core is Installed
-##############################################################################
-
-Write-ColorOutput "" -Type Info
-Write-ColorOutput "Verifying WordPress installation..." -Type Info
-
-# Check if WordPress core exists
-$wordpressExists = $false
-try {
-    $ErrorActionPreference = 'Continue'
-    $wpCheck = & lando ssh -c "test -f /app/wordpress/wp-includes/version.php && echo 'exists' || echo 'missing'" 2>&1 | Out-String
-    $ErrorActionPreference = 'Stop'
-
-    if ($wpCheck -match 'exists') {
-        $wordpressExists = $true
-    }
-} catch {
-    # WordPress check failed
-}
-
-if ($wordpressExists) {
-    Write-ColorOutput "WordPress core already installed" -Type Success
-} else {
-    Write-ColorOutput "WordPress core not found - installing..." -Type Warning
-    Write-ColorOutput "This may take 2-3 minutes on first run..." -Type Info
-
-    try {
-        $ErrorActionPreference = 'Continue'
-        $composerOutput = & lando composer install --no-interaction --prefer-dist 2>&1 | Out-String
-        $ErrorActionPreference = 'Stop'
-
-        # Verify installation succeeded
-        $ErrorActionPreference = 'Continue'
-        $wpCheck2 = & lando ssh -c "test -f /app/wordpress/wp-includes/version.php && echo 'exists' || echo 'missing'" 2>&1 | Out-String
-        $ErrorActionPreference = 'Stop'
-
-        if ($wpCheck2 -match 'exists') {
-            Write-ColorOutput "WordPress core installed successfully!" -Type Success
-        } else {
-            Write-ColorOutput "WordPress core installation may have failed" -Type Warning
-            Write-ColorOutput "Continuing anyway - database import will fail if WordPress is missing" -Type Info
-        }
-    } catch {
-        Write-ColorOutput "Failed to install WordPress core: $_" -Type Error
-        Write-ColorOutput "You may need to run manually: lando composer install" -Type Info
-    }
-}
-
-##############################################################################
 # 5. Authenticate with Terminus
 ##############################################################################
 
