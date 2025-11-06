@@ -1,0 +1,72 @@
+name: wordpress-pantheon
+recipe: pantheon
+config:
+  framework: wordpress
+  site: YOUR_PANTHEON_SITE_NAME
+  id: YOUR_PANTHEON_SITE_ID
+
+services:
+  appserver:
+    build_as_root:
+      # PERFORMANCE: Skip checks, let Pantheon recipe handle it
+      - echo "Container ready"
+    build:
+      # PERFORMANCE: Skip composer check on every start
+      - echo "Using existing composer dependencies"
+    overrides:
+      environment:
+        WP_DEBUG: 'true'
+        WP_DEBUG_LOG: 'true'
+        WP_DEBUG_DISPLAY: 'false'
+        TERMINUS_MACHINE_TOKEN: '${TERMINUS_TOKEN}'
+
+  database:
+    type: mysql:5.7  # PERFORMANCE: MySQL 5.7 starts faster than 8.0
+    portforward: true
+    creds:
+      user: wordpress
+      password: wordpress
+      database: wordpress
+
+# PERFORMANCE: Removed Redis and PhpMyAdmin for faster startup
+# Uncomment if you need them:
+#  cache:
+#    type: redis:7
+#  pma:
+#    type: phpmyadmin
+#    hosts:
+#      - database
+
+tooling:
+  pull-db:
+    service: appserver
+    description: Pull database from Pantheon Dev environment
+    cmd:
+      - /app/scripts/pull-db.sh
+
+  push-db:
+    service: appserver
+    description: Push database to Pantheon Dev environment (USE WITH CAUTION)
+    cmd:
+      - /app/scripts/push-db.sh
+
+  pull-files:
+    service: appserver
+    description: Pull files from Pantheon Dev environment
+    cmd:
+      - /app/scripts/pull-files.sh
+
+  terminus:
+    service: appserver
+    description: Run Terminus commands
+
+  wp:
+    service: appserver
+    description: Run WP-CLI commands
+
+  composer:
+    service: appserver
+
+events:
+  post-start:
+    - appserver: echo "Lando is ready! Access your site at https://wordpress-pantheon.lndo.site"
