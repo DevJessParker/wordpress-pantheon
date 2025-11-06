@@ -819,19 +819,17 @@ if (-not (Test-Path ".env")) {
     Write-ColorOutput ".env file created and configured" -Type Success
 }
 
-# Create .lando.yml from template if it doesn't exist
-if (-not (Test-Path ".lando.yml")) {
-    if (Test-Path ".lando.yml.example") {
-        Write-ColorOutput "Creating .lando.yml from template..." -Type Info
-        Copy-Item ".lando.yml.example" ".lando.yml"
-        Write-ColorOutput ".lando.yml created from template" -Type Success
-    } else {
-        Write-ColorOutput ".lando.yml.example template not found! Are you in the correct directory?" -Type Error
-        exit 1
-    }
+# Always regenerate .lando.yml from template to pick up updates (like WP-CLI installation)
+if (Test-Path ".lando.yml.example") {
+    Write-ColorOutput "Regenerating .lando.yml from template..." -Type Info
+    Copy-Item ".lando.yml.example" ".lando.yml" -Force
+    Write-ColorOutput ".lando.yml regenerated from template" -Type Success
+} else {
+    Write-ColorOutput ".lando.yml.example template not found! Are you in the correct directory?" -Type Error
+    exit 1
 }
 
-# Update .lando.yml with site details
+# Update .lando.yml with site details from .env
 Write-ColorOutput "Updating .lando.yml configuration..." -Type Info
 if (Test-Path ".env") {
     # Read PANTHEON_SITE and PANTHEON_SITE_ID from .env

@@ -696,19 +696,17 @@ if [ ! -f ".env" ]; then
     print_success ".env file created and configured"
 fi
 
-# Create .lando.yml from template if it doesn't exist
-if [ ! -f ".lando.yml" ]; then
-    if [ -f ".lando.yml.example" ]; then
-        print_info "Creating .lando.yml from template..."
-        cp .lando.yml.example .lando.yml
-        print_success ".lando.yml created from template"
-    else
-        print_error ".lando.yml.example template not found! Are you in the correct directory?"
-        exit 1
-    fi
+# Always regenerate .lando.yml from template to pick up updates (like WP-CLI installation)
+if [ -f ".lando.yml.example" ]; then
+    print_info "Regenerating .lando.yml from template..."
+    cp -f .lando.yml.example .lando.yml
+    print_success ".lando.yml regenerated from template"
+else
+    print_error ".lando.yml.example template not found! Are you in the correct directory?"
+    exit 1
 fi
 
-# Update .lando.yml with site details
+# Update .lando.yml with site details from .env
 print_info "Updating .lando.yml configuration..."
 if [ -f ".env" ]; then
     # Source .env to get variables
