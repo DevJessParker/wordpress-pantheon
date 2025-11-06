@@ -173,72 +173,84 @@ try {
 
 # Check Docker Desktop
 Write-ColorOutput "Checking for Docker Desktop..." -Type Info
+
+# First check if docker command exists
+$dockerInstalled = $false
 try {
     $dockerVersion = & docker --version 2>&1
     if ($LASTEXITCODE -eq 0) {
+        $dockerInstalled = $true
         Write-ColorOutput "Docker is installed: $dockerVersion" -Type Success
-
-        # Check if Docker is running (with timeout)
-        Write-ColorOutput "Checking if Docker is running..." -Type Info
-        try {
-            $dockerCheck = Start-Job -ScriptBlock { docker ps 2>&1 | Out-Null; exit $LASTEXITCODE }
-            $dockerCheck | Wait-Job -Timeout 10 | Out-Null
-
-            if ($dockerCheck.State -eq 'Completed') {
-                $exitCode = Receive-Job $dockerCheck
-                Remove-Job $dockerCheck -Force
-
-                if ($exitCode -eq 0) {
-                    Write-ColorOutput "Docker is running" -Type Success
-                } else {
-                    throw "Docker not running"
-                }
-            } else {
-                # Timeout or still running
-                Remove-Job $dockerCheck -Force
-                throw "Docker check timed out"
-            }
-        } catch {
-            Write-ColorOutput "Docker is installed but not running" -Type Warning
-            Write-ColorOutput "Please start Docker Desktop and wait for it to be ready (this may take 1-2 minutes)" -Type Info
-            Write-Host ""
-            Write-Host "Press any key when Docker Desktop is running..." -NoNewline
-            $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-            Write-Host ""
-            Write-Host ""
-
-            # Verify Docker is now running
-            try {
-                $dockerCheck2 = Start-Job -ScriptBlock { docker ps 2>&1 | Out-Null; exit $LASTEXITCODE }
-                $dockerCheck2 | Wait-Job -Timeout 10 | Out-Null
-
-                if ($dockerCheck2.State -eq 'Completed') {
-                    $exitCode2 = Receive-Job $dockerCheck2
-                    Remove-Job $dockerCheck2 -Force
-
-                    if ($exitCode2 -ne 0) {
-                        throw "Docker still not running"
-                    }
-                } else {
-                    Remove-Job $dockerCheck2 -Force
-                    throw "Docker still not responding"
-                }
-
-                Write-ColorOutput "Docker is now running" -Type Success
-            } catch {
-                Write-ColorOutput "Docker is still not running. Please ensure Docker Desktop is fully started." -Type Error
-                Write-ColorOutput "Look for the Docker whale icon in your system tray. It should say 'Docker Desktop is running'" -Type Info
-                exit 1
-            }
-        }
-    } else {
-        throw "Docker command failed"
     }
 } catch {
+    # Docker command not found
+}
+
+if (-not $dockerInstalled) {
     Write-ColorOutput "Docker Desktop is not installed!" -Type Error
     Write-ColorOutput "Please install Docker Desktop from: https://www.docker.com/products/docker-desktop" -Type Info
     Write-ColorOutput "After installing Docker Desktop, restart PowerShell and re-run this script." -Type Info
     exit 1
+}
+
+# Docker is installed, now check if it's running (with timeout)
+Write-ColorOutput "Checking if Docker is running..." -Type Info
+$dockerRunning = $false
+
+try {
+    $dockerCheck = Start-Job -ScriptBlock { docker ps 2>&1 | Out-Null; exit $LASTEXITCODE }
+    $null = Wait-Job $dockerCheck -Timeout 10
+
+    if ($dockerCheck.State -eq 'Completed') {
+        $exitCode = Receive-Job $dockerCheck
+        if ($exitCode -eq 0) {
+            $dockerRunning = $true
+        }
+    }
+
+    Remove-Job $dockerCheck -Force -ErrorAction SilentlyContinue
+} catch {
+    # Job failed
+}
+
+if ($dockerRunning) {
+    Write-ColorOutput "Docker is running" -Type Success
+} else {
+    Write-ColorOutput "Docker is installed but not running" -Type Warning
+    Write-ColorOutput "Please start Docker Desktop and wait for it to be ready (this may take 1-2 minutes)" -Type Info
+    Write-Host ""
+    Write-Host "Press any key when Docker Desktop is running..." -NoNewline
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    Write-Host ""
+    Write-Host ""
+
+    # Verify Docker is now running
+    Write-ColorOutput "Verifying Docker is running..." -Type Info
+    $dockerRunning = $false
+
+    try {
+        $dockerCheck2 = Start-Job -ScriptBlock { docker ps 2>&1 | Out-Null; exit $LASTEXITCODE }
+        $null = Wait-Job $dockerCheck2 -Timeout 10
+
+        if ($dockerCheck2.State -eq 'Completed') {
+            $exitCode2 = Receive-Job $dockerCheck2
+            if ($exitCode2 -eq 0) {
+                $dockerRunning = $true
+            }
+        }
+
+        Remove-Job $dockerCheck2 -Force -ErrorAction SilentlyContinue
+    } catch {
+        # Job failed
+    }
+
+    if ($dockerRunning) {
+        Write-ColorOutput "Docker is now running" -Type Success
+    } else {
+        Write-ColorOutput "Docker is still not running. Please ensure Docker Desktop is fully started." -Type Error
+        Write-ColorOutput "Look for the Docker whale icon in your system tray. It should say 'Docker Desktop is running'" -Type Info
+        exit 1
+    }
 }
 
 ##############################################################################
