@@ -8,7 +8,7 @@
 set -e
 
 # Change to WordPress directory (WP-CLI needs to run from WordPress root)
-cd /app/web 2>/dev/null || cd /app || { echo "Error: Cannot find WordPress directory"; exit 1; }
+cd /app/web 2>/dev/null || cd /app/wordpress 2>/dev/null || cd /app || { echo "Error: Cannot find WordPress directory"; exit 1; }
 
 # Colors for output
 RED='\033[0;31m'
