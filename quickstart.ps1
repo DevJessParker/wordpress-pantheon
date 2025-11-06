@@ -728,7 +728,9 @@ if ((Test-Path "vendor") -and (-not (Test-Path "vendor/autoload.php"))) {
 
 # Stop this project's containers (project-specific, doesn't affect other Lando projects)
 Write-ColorOutput "Stopping wordpress-pantheon containers if running..." -Type Info
+$ErrorActionPreference = 'Continue'
 & lando stop 2>&1 | Out-Null
+$ErrorActionPreference = 'Stop'
 Start-Sleep -Seconds 2
 
 # Destroy existing wordpress-pantheon project for clean slate (project-specific)
