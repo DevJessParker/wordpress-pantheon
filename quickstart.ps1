@@ -197,20 +197,59 @@ if (-not $dockerInstalled) {
 Write-ColorOutput "Checking if Docker is running..." -Type Info
 $dockerRunning = $false
 
-try {
-    $dockerCheck = Start-Job -ScriptBlock { docker ps 2>&1 | Out-Null; exit $LASTEXITCODE }
-    $null = Wait-Job $dockerCheck -Timeout 10
-
-    if ($dockerCheck.State -eq 'Completed') {
-        $exitCode = Receive-Job $dockerCheck
-        if ($exitCode -eq 0) {
-            $dockerRunning = $true
+# Find docker.exe full path (Start-Job doesn't inherit PATH environment)
+$dockerExePath = (Get-Command docker -ErrorAction SilentlyContinue).Path
+if (-not $dockerExePath) {
+    # Try common Docker installation locations
+    $commonPaths = @(
+        "${env:ProgramFiles}\Docker\Docker\resources\bin\docker.exe",
+        "${env:ProgramData}\DockerDesktop\version-bin\docker.exe",
+        "C:\Program Files\Docker\Docker\resources\bin\docker.exe"
+    )
+    foreach ($path in $commonPaths) {
+        if (Test-Path $path) {
+            $dockerExePath = $path
+            break
         }
     }
+}
 
-    Remove-Job $dockerCheck -Force -ErrorAction SilentlyContinue
-} catch {
-    # Job failed
+if ($dockerExePath) {
+    try {
+        # Pass docker path as argument to background job
+        $dockerCheck = Start-Job -ScriptBlock {
+            param($dockerPath)
+            & $dockerPath ps 2>&1 | Out-Null
+            exit $LASTEXITCODE
+        } -ArgumentList $dockerExePath
+
+        $null = Wait-Job $dockerCheck -Timeout 10
+
+        if ($dockerCheck.State -eq 'Completed') {
+            $exitCode = Receive-Job $dockerCheck
+            if ($exitCode -eq 0) {
+                $dockerRunning = $true
+            }
+        }
+
+        Remove-Job $dockerCheck -Force -ErrorAction SilentlyContinue
+    } catch {
+        # Job failed
+    }
+}
+
+# Fallback: try direct check if path not found or job failed
+if (-not $dockerRunning) {
+    try {
+        $ErrorActionPreference = 'Continue'
+        $null = & docker ps 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            $dockerRunning = $true
+        }
+        $ErrorActionPreference = 'Stop'
+    } catch {
+        # Docker check failed
+    }
 }
 
 if ($dockerRunning) {
@@ -224,24 +263,19 @@ if ($dockerRunning) {
     Write-Host ""
     Write-Host ""
 
-    # Verify Docker is now running
+    # Verify Docker is now running (use direct check since we know it's in PATH)
     Write-ColorOutput "Verifying Docker is running..." -Type Info
     $dockerRunning = $false
 
     try {
-        $dockerCheck2 = Start-Job -ScriptBlock { docker ps 2>&1 | Out-Null; exit $LASTEXITCODE }
-        $null = Wait-Job $dockerCheck2 -Timeout 10
-
-        if ($dockerCheck2.State -eq 'Completed') {
-            $exitCode2 = Receive-Job $dockerCheck2
-            if ($exitCode2 -eq 0) {
-                $dockerRunning = $true
-            }
+        $ErrorActionPreference = 'Continue'
+        $null = & docker ps 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            $dockerRunning = $true
         }
-
-        Remove-Job $dockerCheck2 -Force -ErrorAction SilentlyContinue
+        $ErrorActionPreference = 'Stop'
     } catch {
-        # Job failed
+        # Docker check failed
     }
 
     if ($dockerRunning) {
