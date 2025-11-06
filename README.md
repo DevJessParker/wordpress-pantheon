@@ -36,6 +36,16 @@ Before running the quickstart script, make sure you have:
    - **Windows**: Run PowerShell as Administrator
    - **macOS/Linux**: You'll need sudo access
 
+5. ✅ **Windows Users: Git Line Ending Configuration** ⚠️
+   - **IMPORTANT**: Before cloning, configure Git to preserve Unix line endings
+   - This prevents shell script errors in Docker containers
+   - Run this command once:
+   ```powershell
+   git config --global core.autocrlf input
+   ```
+   - **Why?** Windows Git defaults to converting line endings (LF → CRLF), which breaks shell scripts in Linux containers
+   - The `.gitattributes` file in this repo enforces Unix line endings, but Git needs to be configured to respect it
+
 ### Team Quickstart
 
 #### Windows (PowerShell as Administrator)
@@ -426,6 +436,40 @@ See [SECURITY.md](SECURITY.md) for detailed setup instructions.
 ## 🐛 Troubleshooting
 
 ### Common Team Issues
+
+#### **Windows**: "Script not found" or "$'\r': command not found" errors
+
+**Cause**: Windows Git converted Unix line endings (LF) to Windows line endings (CRLF) when you cloned the repository. Linux containers can't execute shell scripts with CRLF line endings.
+
+**Symptoms**:
+```
+/bin/sh: 1: /app/scripts/pull-db.sh: not found
+/app/scripts/pull-db.sh: line 2: $'\r': command not found
+```
+
+**Fix** (choose one):
+
+**Option 1 - If you haven't cloned yet (BEST)**:
+```powershell
+# Configure Git BEFORE cloning
+git config --global core.autocrlf input
+git clone <repo-url>
+```
+
+**Option 2 - Already cloned? Re-normalize files**:
+```powershell
+# Configure Git
+git config core.autocrlf input
+
+# Re-checkout files with correct line endings
+git rm --cached -r .
+git reset --hard HEAD
+
+# Verify scripts work
+lando pull-db
+```
+
+**Why this happens**: Windows Git's default `core.autocrlf=true` converts line endings to CRLF on checkout. The `.gitattributes` file in this repo prevents this, but only if Git is configured to respect it.
 
 #### "I see a 404 error when I visit the site"
 
