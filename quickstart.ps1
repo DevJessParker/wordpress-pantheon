@@ -257,8 +257,18 @@ if (-not $SkipLandoInstall) {
 
         # Check if it's a beta version
         if ($landoVersion -match 'beta') {
-            Write-ColorOutput "Beta version detected - upgrading to stable release" -Type Warning
-            $needsUpgrade = $true
+            # Known issue: files.lando.dev/installer/lando-x64-stable.exe installs v3.21.0-beta.14
+            # Skip upgrade prompt for this specific version since "upgrade" doesn't actually change it
+            if ($landoVersion -match 'v3\.21\.0-beta\.14') {
+                Write-ColorOutput "Beta version detected: $landoVersion" -Type Info
+                Write-ColorOutput "Note: Lando's 'stable' installer currently installs this beta version." -Type Info
+                Write-ColorOutput "This is a known issue with files.lando.dev distribution." -Type Info
+                Write-ColorOutput "The beta version works fine for development - continuing with setup..." -Type Info
+                $needsUpgrade = $false
+            } else {
+                Write-ColorOutput "Beta version detected - upgrading to stable release" -Type Warning
+                $needsUpgrade = $true
+            }
         }
         # Check if it's a very old version (pre-v3.20)
         elseif ($landoVersion -match 'v(\d+)\.(\d+)\.(\d+)') {
@@ -278,6 +288,7 @@ if (-not $SkipLandoInstall) {
 
     # Prompt for confirmation if upgrading existing installation
     $proceedWithInstall = $true
+    $oldVersion = $landoVersion  # Store old version for comparison after upgrade
     if ($needsUpgrade) {
         Write-ColorOutput "" -Type Info
         Write-ColorOutput "Your current Lando installation will be upgraded to the latest stable version." -Type Warning
@@ -493,6 +504,41 @@ if (-not $SkipLandoInstall) {
                                 if ($LASTEXITCODE -eq 0 -and $landoVersion) {
                                     Write-ColorOutput "Lando verified successfully: $landoVersion" -Type Success
                                     Write-ColorOutput "Installation directory: $installDir" -Type Info
+
+                                    # Check if upgrade actually changed the version
+                                    if ($needsUpgrade -and $oldVersion) {
+                                        if ($landoVersion -eq $oldVersion) {
+                                            Write-ColorOutput "" -Type Info
+                                            Write-ColorOutput "WARNING: Version did not change after upgrade!" -Type Warning
+                                            Write-ColorOutput "  Old version: $oldVersion" -Type Info
+                                            Write-ColorOutput "  New version: $landoVersion" -Type Info
+                                            Write-ColorOutput "" -Type Info
+
+                                            if ($landoVersion -match 'beta') {
+                                                Write-ColorOutput "ISSUE: The 'stable' installer is actually still installing a beta version." -Type Error
+                                                Write-ColorOutput "This is a known issue with Lando's distribution server (files.lando.dev)." -Type Info
+                                                Write-ColorOutput "" -Type Info
+                                                Write-ColorOutput "Workaround: The beta version should work fine for development." -Type Info
+                                                Write-ColorOutput "If you experience issues, you can manually download a specific version from:" -Type Info
+                                                Write-ColorOutput "  https://github.com/lando/lando/releases" -Type Info
+                                                Write-ColorOutput "" -Type Info
+                                                Write-ColorOutput "The script will continue with the current beta version." -Type Warning
+                                                Write-ColorOutput "" -Type Info
+                                            }
+                                        } else {
+                                            Write-ColorOutput "Successfully upgraded from $oldVersion to $landoVersion" -Type Success
+
+                                            # Still warn if new version is beta
+                                            if ($landoVersion -match 'beta') {
+                                                Write-ColorOutput "" -Type Info
+                                                Write-ColorOutput "NOTE: Installed version is still a beta version." -Type Warning
+                                                Write-ColorOutput "The 'stable' installer from files.lando.dev appears to be a beta." -Type Info
+                                                Write-ColorOutput "The script will continue - beta versions are generally stable enough for development." -Type Info
+                                                Write-ColorOutput "" -Type Info
+                                            }
+                                        }
+                                    }
+
                                     $verifySuccess = $true
                                     break
                                 } else {
