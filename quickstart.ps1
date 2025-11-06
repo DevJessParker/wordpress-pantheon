@@ -1196,28 +1196,25 @@ Write-ColorOutput "This will pull the database and files from your Pantheon Dev 
 $pullData = Read-Host "Do you want to pull data now? (Y/n)"
 
 if ($pullData -ne "n" -and $pullData -ne "N") {
-    Write-ColorOutput "Pulling database from Pantheon Dev..." -Type Info
-    try {
-        & lando pull-db
-        if ($LASTEXITCODE -eq 0) {
-            Write-ColorOutput "Database pulled successfully!" -Type Success
-        } else {
-            Write-ColorOutput "Failed to pull database. You can try again later with: lando pull-db" -Type Warning
-        }
-    } catch {
-        Write-ColorOutput "Error pulling database: $_" -Type Warning
-    }
+    # Use built-in Lando pull command to get code, database, and files from Pantheon
+    Write-ColorOutput "Pulling code, database, and files from Pantheon Dev..." -Type Info
+    Write-ColorOutput "This will pull WordPress core, plugins, themes, database, and uploads" -Type Info
+    Write-ColorOutput "" -Type Info
 
-    Write-ColorOutput "Pulling files from Pantheon Dev..." -Type Info
     try {
-        & lando pull-files
+        # Use lando pull with prompts (user can choose what to pull)
+        # This handles the correct order automatically
+        & lando pull
+
         if ($LASTEXITCODE -eq 0) {
-            Write-ColorOutput "Files pulled successfully!" -Type Success
+            Write-ColorOutput "Pantheon data pulled successfully!" -Type Success
         } else {
-            Write-ColorOutput "Failed to pull files. You can try again later with: lando pull-files" -Type Warning
+            Write-ColorOutput "Pantheon pull completed with warnings" -Type Warning
+            Write-ColorOutput "You can run 'lando pull' again to sync specific components" -Type Info
         }
     } catch {
-        Write-ColorOutput "Error pulling files: $_" -Type Warning
+        Write-ColorOutput "Error during Pantheon pull: $_" -Type Warning
+        Write-ColorOutput "You can run 'lando pull' manually to try again" -Type Info
     }
 } else {
     Write-ColorOutput "Skipping data sync. You can run 'lando pull' later to sync data" -Type Info

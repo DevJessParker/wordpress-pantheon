@@ -944,18 +944,16 @@ print_info "This will pull the database and files from your Pantheon Dev environ
 read -rp "Do you want to pull data now? (Y/n): " PULL_DATA
 
 if [[ ! "$PULL_DATA" =~ ^[Nn]$ ]]; then
-    print_info "Pulling database from Pantheon Dev..."
-    if lando pull-db; then
-        print_success "Database pulled successfully!"
-    else
-        print_warning "Failed to pull database. You can try again later with: lando pull-db"
-    fi
+    # Use built-in Lando pull command to get code, database, and files from Pantheon
+    print_info "Pulling code, database, and files from Pantheon Dev..."
+    print_info "This will pull WordPress core, plugins, themes, database, and uploads"
+    echo ""
 
-    print_info "Pulling files from Pantheon Dev..."
-    if lando pull-files; then
-        print_success "Files pulled successfully!"
+    if lando pull; then
+        print_success "Pantheon data pulled successfully!"
     else
-        print_warning "Failed to pull files. You can try again later with: lando pull-files"
+        print_warning "Pantheon pull completed with warnings"
+        print_info "You can run 'lando pull' again to sync specific components"
     fi
 else
     print_info "Skipping data sync. You can run 'lando pull' later to sync data"
