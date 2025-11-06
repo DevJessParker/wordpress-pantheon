@@ -1207,14 +1207,39 @@ if ($pullData -ne "n" -and $pullData -ne "N") {
         & lando pull
 
         if ($LASTEXITCODE -eq 0) {
-            Write-ColorOutput "Pantheon data pulled successfully!" -Type Success
+            Write-ColorOutput "Pantheon pull completed!" -Type Success
         } else {
             Write-ColorOutput "Pantheon pull completed with warnings" -Type Warning
-            Write-ColorOutput "You can run 'lando pull' again to sync specific components" -Type Info
+        }
+
+        # CRITICAL: Verify WordPress core exists after pull
+        Write-ColorOutput "" -Type Info
+        Write-ColorOutput "Verifying WordPress core was pulled..." -Type Info
+
+        $ErrorActionPreference = 'Continue'
+        $wpCheck = & lando ssh -c "test -f /app/wordpress/wp-includes/version.php && echo 'exists' || echo 'missing'" 2>&1 | Out-String
+        $ErrorActionPreference = 'Stop'
+
+        if ($wpCheck -match 'exists') {
+            Write-ColorOutput "WordPress core verified successfully!" -Type Success
+        } else {
+            Write-ColorOutput "" -Type Info
+            Write-ColorOutput "ERROR: WordPress core not found after pull!" -Type Error
+            Write-ColorOutput "" -Type Info
+            Write-ColorOutput "This usually means:" -Type Info
+            Write-ColorOutput "  - You selected 'No' when asked to pull code" -Type Info
+            Write-ColorOutput "  - The code pull from Pantheon failed" -Type Info
+            Write-ColorOutput "  - Network issues interrupted the download" -Type Info
+            Write-ColorOutput "" -Type Info
+            Write-ColorOutput "WordPress core is REQUIRED for database import." -Type Error
+            Write-ColorOutput "Please run the setup again and select 'Yes' when asked to pull code." -Type Info
+            Write-ColorOutput "" -Type Info
+            exit 1
         }
     } catch {
         Write-ColorOutput "Error during Pantheon pull: $_" -Type Warning
         Write-ColorOutput "You can run 'lando pull' manually to try again" -Type Info
+        exit 1
     }
 } else {
     Write-ColorOutput "Skipping data sync. You can run 'lando pull' later to sync data" -Type Info

@@ -950,10 +950,30 @@ if [[ ! "$PULL_DATA" =~ ^[Nn]$ ]]; then
     echo ""
 
     if lando pull; then
-        print_success "Pantheon data pulled successfully!"
+        print_success "Pantheon pull completed!"
     else
         print_warning "Pantheon pull completed with warnings"
-        print_info "You can run 'lando pull' again to sync specific components"
+    fi
+
+    # CRITICAL: Verify WordPress core exists after pull
+    echo ""
+    print_info "Verifying WordPress core was pulled..."
+
+    if lando ssh -c "test -f /app/wordpress/wp-includes/version.php" 2>/dev/null; then
+        print_success "WordPress core verified successfully!"
+    else
+        echo ""
+        print_error "ERROR: WordPress core not found after pull!"
+        echo ""
+        print_info "This usually means:"
+        print_info "  - You selected 'No' when asked to pull code"
+        print_info "  - The code pull from Pantheon failed"
+        print_info "  - Network issues interrupted the download"
+        echo ""
+        print_error "WordPress core is REQUIRED for database import."
+        print_info "Please run the setup again and select 'Yes' when asked to pull code."
+        echo ""
+        exit 1
     fi
 else
     print_info "Skipping data sync. You can run 'lando pull' later to sync data"
