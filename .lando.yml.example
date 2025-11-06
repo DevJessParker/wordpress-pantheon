@@ -10,6 +10,9 @@ services:
     build_as_root:
       - apt-get update -y
       - apt-get install -y vim wget
+      # Install WP-CLI
+      - curl -o /usr/local/bin/wp https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+      - chmod +x /usr/local/bin/wp
     build:
       # Clean up any partial/failed Composer installations
       - >
