@@ -685,6 +685,18 @@ if (-not (Test-Path ".env")) {
     Write-ColorOutput ".env file created and configured" -Type Success
 }
 
+# Create .lando.yml from template if it doesn't exist
+if (-not (Test-Path ".lando.yml")) {
+    if (Test-Path ".lando.yml.example") {
+        Write-ColorOutput "Creating .lando.yml from template..." -Type Info
+        Copy-Item ".lando.yml.example" ".lando.yml"
+        Write-ColorOutput ".lando.yml created from template" -Type Success
+    } else {
+        Write-ColorOutput ".lando.yml.example template not found! Are you in the correct directory?" -Type Error
+        exit 1
+    }
+}
+
 # Update .lando.yml with site details
 Write-ColorOutput "Updating .lando.yml configuration..." -Type Info
 if (Test-Path ".env") {
@@ -693,12 +705,7 @@ if (Test-Path ".env") {
     $pantheonSite = ($envLines | Where-Object { $_ -match "^PANTHEON_SITE=" }) -replace "PANTHEON_SITE=", ""
     $pantheonSiteId = ($envLines | Where-Object { $_ -match "^PANTHEON_SITE_ID=" }) -replace "PANTHEON_SITE_ID=", ""
 
-    if (-not (Test-Path ".lando.yml")) {
-        Write-ColorOutput ".lando.yml not found! Are you in the correct directory?" -Type Error
-        exit 1
-    }
-
-    # Update .lando.yml
+    # Update .lando.yml (local file, gitignored)
     $landoContent = Get-Content ".lando.yml" -Raw
     $landoContent = $landoContent -replace 'site: YOUR_PANTHEON_SITE_NAME', "site: $pantheonSite"
     $landoContent = $landoContent -replace 'id: YOUR_PANTHEON_SITE_ID', "id: $pantheonSiteId"

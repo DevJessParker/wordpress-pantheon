@@ -23,6 +23,7 @@ backups/
 .env.*.local
 
 # Lando
+.lando.yml
 .lando.local.yml
 
 # Test scripts (for development only)

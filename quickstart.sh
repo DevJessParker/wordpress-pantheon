@@ -684,22 +684,28 @@ if [ ! -f ".env" ]; then
     print_success ".env file created and configured"
 fi
 
+# Create .lando.yml from template if it doesn't exist
+if [ ! -f ".lando.yml" ]; then
+    if [ -f ".lando.yml.example" ]; then
+        print_info "Creating .lando.yml from template..."
+        cp .lando.yml.example .lando.yml
+        print_success ".lando.yml created from template"
+    else
+        print_error ".lando.yml.example template not found! Are you in the correct directory?"
+        exit 1
+    fi
+fi
+
 # Update .lando.yml with site details
 print_info "Updating .lando.yml configuration..."
 if [ -f ".env" ]; then
-    # Check for .lando.yml
-    if [ ! -f ".lando.yml" ]; then
-        print_error ".lando.yml not found! Are you in the correct directory?"
-        exit 1
-    fi
-
     # Source .env to get variables
     # shellcheck disable=SC1091
     set -a
     source .env
     set +a
 
-    # Update .lando.yml
+    # Update .lando.yml (local file, gitignored)
     if [[ "$OS" == "macos" ]]; then
         sed -i '' "s|site: YOUR_PANTHEON_SITE_NAME|site: $PANTHEON_SITE|" .lando.yml
         sed -i '' "s|id: YOUR_PANTHEON_SITE_ID|id: $PANTHEON_SITE_ID|" .lando.yml

@@ -1,0 +1,143 @@
+name: wordpress-pantheon
+recipe: pantheon
+config:
+  framework: wordpress
+  site: YOUR_PANTHEON_SITE_NAME
+  id: YOUR_PANTHEON_SITE_ID
+
+services:
+  appserver:
+    build_as_root:
+      - apt-get update -y
+      - apt-get install -y vim wget
+    build:
+      # Clean up any partial/failed Composer installations
+      - >
+        if [ -d "vendor" ] && [ ! -f "vendor/autoload.php" ]; then
+          echo "Cleaning up partial Composer installation...";
+          rm -rf vendor/;
+        fi
+      # Only install Composer dependencies if vendor/ doesn't exist
+      # This speeds up subsequent Lando starts significantly
+      - >
+        if [ ! -d "vendor" ] || [ ! -f "vendor/autoload.php" ]; then
+          echo "Installing Composer dependencies...";
+          composer install --no-interaction --prefer-dist;
+        else
+          echo "Composer dependencies already installed, skipping...";
+        fi
+    overrides:
+      environment:
+        # Enable WP_DEBUG for local development
+        WP_DEBUG: 'true'
+        WP_DEBUG_LOG: 'true'
+        WP_DEBUG_DISPLAY: 'false'
+
+  database:
+    type: mysql:8.0
+    portforward: true
+    creds:
+      user: wordpress
+      password: wordpress
+      database: wordpress
+    overrides:
+      environment:
+        MYSQL_ROOT_PASSWORD: root
+
+  cache:
+    type: redis:7
+    portforward: true
+
+  # PhpMyAdmin for easy database management (GUI)
+  pma:
+    type: phpmyadmin
+    hosts:
+      - database
+
+tooling:
+  # Database operations
+  pull-db:
+    service: appserver
+    description: Pull database from Pantheon Dev environment
+    cmd:
+      - /app/scripts/pull-db.sh
+
+  push-db:
+    service: appserver
+    description: Push database to Pantheon Dev environment (USE WITH CAUTION)
+    cmd:
+      - /app/scripts/push-db.sh
+
+  sync-db:
+    service: appserver
+    description: Sync database from Pantheon Dev environment
+    cmd:
+      - terminus backup:create ${PANTHEON_SITE}.dev --element=db
+      - /app/scripts/pull-db.sh
+
+  # File operations
+  pull-files:
+    service: appserver
+    description: Pull files from Pantheon Dev environment
+    cmd:
+      - /app/scripts/pull-files.sh
+
+  # Redis cache operations
+  clear-cache:
+    service: appserver
+    description: Clear all caches (WordPress + Redis)
+    cmd:
+      - wp cache flush
+      - redis-cli -h cache FLUSHALL
+
+  # Terminus commands
+  terminus:
+    service: appserver
+    description: Run Terminus commands
+
+  # WordPress CLI
+  wp:
+    service: appserver
+    description: Run WP-CLI commands
+
+  # Composer
+  composer:
+    service: appserver
+
+  # Database backup
+  backup-db:
+    service: appserver
+    description: Create local database backup
+    cmd:
+      - mkdir -p /app/backups
+      - wp db export /app/backups/local-backup-$(date +%Y%m%d-%H%M%S).sql
+
+  # Open PhpMyAdmin
+  phpmyadmin:
+    service: pma
+    description: Open PhpMyAdmin in browser
+
+  # Security scan
+  security-check:
+    service: appserver
+    description: Run security checks on WordPress installation
+    cmd:
+      - /app/scripts/security-check.sh
+
+proxy:
+  pma:
+    - pma.wordpress-pantheon.lndo.site
+
+events:
+  post-start:
+    - appserver: echo "Lando is ready! Access your site at https://wordpress-pantheon.lndo.site"
+    - appserver: echo "PhpMyAdmin available at https://pma.wordpress-pantheon.lndo.site"
+    - appserver: echo ""
+    - appserver: echo "Quick Commands:"
+    - appserver: echo "  lando pull-db    - Pull database from Pantheon Dev"
+    - appserver: echo "  lando pull-files - Pull files from Pantheon Dev"
+    - appserver: echo "  lando wp         - Run WP-CLI commands"
+    - appserver: echo "  lando terminus   - Run Terminus commands"
+
+  post-db-import:
+    - appserver: wp search-replace '$PANTHEON_SITE_URL' 'https://wordpress-pantheon.lndo.site' --skip-columns=guid --all-tables
