@@ -226,14 +226,26 @@ if command -v docker &> /dev/null; then
     DOCKER_VERSION=$(docker --version 2>&1 || echo "unknown")
     print_success "Docker is installed: $DOCKER_VERSION"
 
-    # Check if Docker is running
-    if docker ps &> /dev/null; then
+    # Check if Docker is running (with timeout)
+    print_info "Checking if Docker is running..."
+    if timeout 10 docker ps &> /dev/null; then
         print_success "Docker is running"
     else
         print_warning "Docker is installed but not running"
-        print_info "Please start Docker Desktop and wait for it to be ready"
+        print_info "Please start Docker Desktop and wait for it to be ready (this may take 1-2 minutes)"
+        echo ""
         echo -n "Press Enter when Docker Desktop is running..."
         read -r
+        echo ""
+
+        # Verify Docker is now running
+        if timeout 10 docker ps &> /dev/null; then
+            print_success "Docker is now running"
+        else
+            print_error "Docker is still not running. Please ensure Docker Desktop is fully started."
+            print_info "Look for the Docker whale icon in your system tray. It should say 'Docker Desktop is running'"
+            exit 1
+        fi
     fi
 else
     print_error "Docker is not installed!"
