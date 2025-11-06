@@ -871,9 +871,43 @@ if [ "$LANDO_STARTED" = false ]; then
 fi
 
 ##############################################################################
+# 4.5. Ensure WordPress Core is Installed
+##############################################################################
+
+echo ""
+print_info "Verifying WordPress installation..."
+
+# Check if WordPress core exists
+WORDPRESS_EXISTS=false
+if lando ssh -c "test -f /app/wordpress/wp-includes/version.php" 2>/dev/null; then
+    WORDPRESS_EXISTS=true
+fi
+
+if [ "$WORDPRESS_EXISTS" = true ]; then
+    print_success "WordPress core already installed"
+else
+    print_warning "WordPress core not found - installing..."
+    print_info "This may take 2-3 minutes on first run..."
+
+    if lando composer install --no-interaction --prefer-dist 2>&1; then
+        # Verify installation succeeded
+        if lando ssh -c "test -f /app/wordpress/wp-includes/version.php" 2>/dev/null; then
+            print_success "WordPress core installed successfully!"
+        else
+            print_warning "WordPress core installation may have failed"
+            print_info "Continuing anyway - database import will fail if WordPress is missing"
+        fi
+    else
+        print_error "Failed to install WordPress core"
+        print_info "You may need to run manually: lando composer install"
+    fi
+fi
+
+##############################################################################
 # 5. Authenticate with Terminus
 ##############################################################################
 
+echo ""
 print_header "Step 5: Authenticating with Terminus"
 
 # Read token from .env

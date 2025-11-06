@@ -7,6 +7,7 @@
         "php": ">=8.2",
         "composer/installers": "^2.0",
         "vlucas/phpdotenv": "^5.5",
+        "johnpbloch/wordpress-core": "^6.0",
         "pantheon-systems/wordpress-composer": "*"
     },
     "require-dev": {
