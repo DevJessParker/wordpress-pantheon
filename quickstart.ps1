@@ -143,18 +143,79 @@ Write-Host ""
 
 if ($Force) {
     Write-Host "[INFO] Force rebuild requested..." -ForegroundColor Cyan
+    lando stop 2>&1 | Out-Null
+    Start-Sleep -Seconds 2
     lando destroy -y 2>&1 | Out-Null
+    Start-Sleep -Seconds 2
 }
 
-lando start
+# Retry logic for lando start
+$MaxAttempts = 3
+$LandoStarted = $false
 
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "[ERROR] Failed to start Lando" -ForegroundColor Red
-    Write-Host "Try: lando destroy -y; lando start" -ForegroundColor Yellow
+for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+    if ($attempt -eq 1) {
+        Write-Host "[INFO] Starting Lando (attempt $attempt/$MaxAttempts)..." -ForegroundColor Cyan
+        Write-Host ""
+        lando start
+    }
+    elseif ($attempt -eq 2) {
+        Write-Host "[WARN] First attempt failed. Destroying and starting fresh (attempt $attempt/$MaxAttempts)..." -ForegroundColor Yellow
+        lando stop 2>&1 | Out-Null
+        Start-Sleep -Seconds 2
+        lando destroy -y 2>&1 | Out-Null
+        Start-Sleep -Seconds 2
+        lando start
+    }
+    else {
+        Write-Host "[WARN] Second attempt failed. Performing aggressive cleanup (attempt $attempt/$MaxAttempts)..." -ForegroundColor Yellow
+        lando stop 2>&1 | Out-Null
+        Start-Sleep -Seconds 2
+        lando destroy -y 2>&1 | Out-Null
+        Start-Sleep -Seconds 2
+        lando start
+    }
+
+    # Verify containers are actually running (not just checking exit code)
+    Start-Sleep -Seconds 5
+    Write-Host "[INFO] Verifying containers are running..." -ForegroundColor Cyan
+
+    $landoInfo = lando info --format json 2>&1 | ConvertFrom-Json -ErrorAction SilentlyContinue
+
+    if ($landoInfo -and $landoInfo.Count -gt 0) {
+        $healthyServices = ($landoInfo | Where-Object { $_.healthy -eq $true }).Count
+        if ($healthyServices -gt 0) {
+            Write-Host "[OK] Lando started successfully! ($healthyServices healthy services)" -ForegroundColor Green
+            $LandoStarted = $true
+            break
+        }
+    }
+
+    if ($attempt -lt $MaxAttempts) {
+        Write-Host "[WARN] Containers not running properly, will retry..." -ForegroundColor Yellow
+        Start-Sleep -Seconds 2
+    }
+}
+
+if (-not $LandoStarted) {
+    Write-Host ""
+    Write-Host "[ERROR] Failed to start Lando after $MaxAttempts attempts" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Troubleshooting steps:" -ForegroundColor Yellow
+    Write-Host "  1. Check Docker Desktop is running and healthy" -ForegroundColor Gray
+    Write-Host "  2. Restart Docker Desktop completely" -ForegroundColor Gray
+    Write-Host "  3. Try manually: lando stop; lando destroy -y; lando start" -ForegroundColor Gray
+    Write-Host "  4. Check for port conflicts (80, 443, 3306 in use)" -ForegroundColor Gray
+    Write-Host "  5. Check Lando logs: lando logs" -ForegroundColor Gray
+    Write-Host "  6. Update Lando from: https://github.com/lando/lando/releases/latest" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "Performance troubleshooting:" -ForegroundColor Yellow
+    Write-Host "  - Check your internet connection" -ForegroundColor Gray
+    Write-Host "  - Check Docker Desktop resources (CPU/Memory in Settings)" -ForegroundColor Gray
+    Write-Host "  - Consider using WSL2 for 5-10x faster performance" -ForegroundColor Gray
+    Write-Host ""
     exit 1
 }
-
-Write-Host "[OK] Lando started!" -ForegroundColor Green
 
 # Authenticate with Terminus
 Write-Host ""
