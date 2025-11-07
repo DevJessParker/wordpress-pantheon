@@ -33,21 +33,138 @@ Write-Host ""
 # Check prerequisites
 Write-Host "[INFO] Checking prerequisites..." -ForegroundColor Cyan
 
+# Function to download and install Lando
+function Install-Lando {
+    Write-Host ""
+    Write-Host "========================================" -ForegroundColor Magenta
+    Write-Host "Installing Lando" -ForegroundColor Magenta
+    Write-Host "========================================" -ForegroundColor Magenta
+    Write-Host ""
+
+    Write-Host "[INFO] Using official Lando installer..." -ForegroundColor Cyan
+    Write-Host ""
+
+    try {
+        # Use official Lando PowerShell installer
+        # https://docs.lando.dev/install/windows.html
+        $installerUrl = "https://get.lando.dev/setup-lando.ps1"
+
+        Write-Host "[INFO] Downloading installer script..." -ForegroundColor Cyan
+        Write-Host "[INFO] From: $installerUrl" -ForegroundColor Gray
+        Write-Host ""
+
+        # Download the installer script
+        $installerScript = Invoke-RestMethod -Uri $installerUrl -UseBasicParsing
+
+        Write-Host "[OK] Installer script downloaded" -ForegroundColor Green
+        Write-Host ""
+        Write-Host "[INFO] Running Lando installation..." -ForegroundColor Cyan
+        Write-Host "[WARN] This will install the latest stable version" -ForegroundColor Yellow
+        Write-Host "[WARN] You may see UAC prompts - click 'Yes' to continue" -ForegroundColor Yellow
+        Write-Host ""
+
+        # Execute the installer script
+        # Save to temp file and execute with proper parameter binding
+        $tempScript = Join-Path $env:TEMP "setup-lando.ps1"
+        [System.IO.File]::WriteAllText($tempScript, $installerScript)
+        & $tempScript -Yes -Version stable -Arch auto
+        Remove-Item $tempScript -Force -ErrorAction SilentlyContinue
+
+        Write-Host ""
+        Write-Host "[OK] Lando installation completed!" -ForegroundColor Green
+        Write-Host "[INFO] Please restart PowerShell for changes to take effect" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "After restarting PowerShell, run this script again:" -ForegroundColor Yellow
+        Write-Host "  .\quickstart.ps1" -ForegroundColor Yellow
+        Write-Host ""
+
+        exit 0
+
+    } catch {
+        Write-Host "[ERROR] Failed to install Lando: $_" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "Manual installation:" -ForegroundColor Yellow
+        Write-Host "  Run this command in PowerShell:" -ForegroundColor Yellow
+        Write-Host "    iex (irm 'https://get.lando.dev/setup-lando.ps1' -UseB)" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "  Or visit: https://docs.lando.dev/install/windows.html" -ForegroundColor Yellow
+        Write-Host ""
+        exit 1
+    }
+}
+
 # Check Lando
 if (-not (Get-Command lando -ErrorAction SilentlyContinue)) {
-    Write-Host "[ERROR] Lando is not installed!" -ForegroundColor Red
+    Write-Host "[WARN] Lando is not installed!" -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "To install Lando:" -ForegroundColor Yellow
-    Write-Host "  1. Download from: https://github.com/lando/lando/releases/latest" -ForegroundColor Yellow
-    Write-Host "  2. Get the file: lando-x64-stable.exe" -ForegroundColor Yellow
-    Write-Host "  3. Run the installer (requires Admin)" -ForegroundColor Yellow
-    Write-Host "  4. Restart PowerShell" -ForegroundColor Yellow
-    Write-Host "  5. Run this script again" -ForegroundColor Yellow
-    Write-Host ""
-    exit 1
+    $install = Read-Host "Would you like to download and install Lando now? (Y/n)"
+
+    if ($install -ne 'n') {
+        Install-Lando
+    } else {
+        Write-Host ""
+        Write-Host "[INFO] Manual installation steps:" -ForegroundColor Cyan
+        Write-Host "  1. Visit: https://github.com/lando/lando/releases/latest" -ForegroundColor Cyan
+        Write-Host "  2. Download: lando-x64-stable.exe" -ForegroundColor Cyan
+        Write-Host "  3. Run the installer (requires Admin)" -ForegroundColor Cyan
+        Write-Host "  4. Restart PowerShell and run this script again" -ForegroundColor Cyan
+        Write-Host ""
+        exit 1
+    }
 }
 
 Write-Host "[OK] Lando is installed" -ForegroundColor Green
+
+# Check Lando version and warn about beta versions
+$landoVersion = lando version 2>&1 | Out-String
+if ($landoVersion -match 'v(\d+)\.(\d+)\.(\d+)(-beta)?') {
+    $major = [int]$matches[1]
+    $minor = [int]$matches[2]
+    $patch = [int]$matches[3]
+    $isBeta = $matches[4] -eq '-beta'
+
+    if ($isBeta) {
+        Write-Host "[ERROR] You're running a beta version of Lando (v$major.$minor.$patch-beta)" -ForegroundColor Red
+        Write-Host "[ERROR] Beta versions use deprecated Docker images that will cause startup failures" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "Common errors you'll encounter:" -ForegroundColor Yellow
+        Write-Host "  - manifest for bitnami/nginx:1.17.10-debian-10-r52 not found" -ForegroundColor Gray
+        Write-Host "  - manifest for bitnami/mysql:5.7.29-debian-10-r51 not found" -ForegroundColor Gray
+        Write-Host ""
+
+        $upgrade = Read-Host "Would you like to upgrade to the latest stable version now? (Y/n)"
+
+        if ($upgrade -ne 'n') {
+            Install-Lando
+        } else {
+            Write-Host ""
+            $continue = Read-Host "Continue with beta version anyway? This will likely fail (y/N)"
+            if ($continue -ne 'y') {
+                Write-Host ""
+                Write-Host "[INFO] Exiting. Please update Lando and run this script again." -ForegroundColor Cyan
+                Write-Host "[INFO] Manual update: https://github.com/lando/lando/releases/latest" -ForegroundColor Cyan
+                Write-Host ""
+                exit 1
+            }
+            Write-Host ""
+        }
+    }
+
+    if ($major -lt 3 -or ($major -eq 3 -and $minor -lt 23)) {
+        Write-Host "[WARN] Lando version is outdated (detected: v$major.$minor)" -ForegroundColor Yellow
+        Write-Host "[WARN] Recommend updating to v3.23+ for best compatibility" -ForegroundColor Yellow
+        Write-Host ""
+
+        $upgrade = Read-Host "Would you like to upgrade to the latest stable version? (y/N)"
+
+        if ($upgrade -eq 'y') {
+            Install-Lando
+        } else {
+            Write-Host "[INFO] Continuing with current version..." -ForegroundColor Cyan
+            Write-Host ""
+        }
+    }
+}
 
 # Check Docker
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
@@ -123,12 +240,27 @@ if (Test-Path ".lando.yml.example") {
 
     # Update .lando.yml
     $landoContent = Get-Content ".lando.yml" -Raw
+
+    # Replace site configuration
     $landoContent = $landoContent -replace "site: YOUR_PANTHEON_SITE_NAME", "site: $($envVars['PANTHEON_SITE'])"
     $landoContent = $landoContent -replace "id: YOUR_PANTHEON_SITE_ID", "id: $($envVars['PANTHEON_SITE_ID'])"
+
+    # Add env_file reference if not present (fixes TERMINUS_TOKEN loading)
+    if ($landoContent -notmatch 'env_file:') {
+        $landoContent = $landoContent -replace "(?m)(id: .+?)(\r?\n)", "`$1`n  env_file:`n    - .env`$2"
+    }
+
+    # Fix deprecated Bitnami MySQL image (replace with official MySQL image)
+    # This fixes: "manifest for bitnami/mysql:5.7.29-debian-10-r51 not found"
+    if ($landoContent -match 'type: mysql:5\.7' -and $landoContent -notmatch 'image: mysql:5\.7') {
+        $landoContent = $landoContent -replace "(?ms)(database:.*?overrides:)", "`$1`n      image: mysql:5.7"
+    }
+
+    # Normalize line endings to Unix (LF)
     $landoContent = $landoContent -replace "`r`n", "`n"
     [System.IO.File]::WriteAllText("$PWD\.lando.yml", $landoContent)
 
-    Write-Host "[OK] .lando.yml configured" -ForegroundColor Green
+    Write-Host "[OK] .lando.yml configured with .env reference and image fixes" -ForegroundColor Green
 }
 
 # Start Lando
@@ -152,12 +284,19 @@ if ($Force) {
 # Retry logic for lando start
 $MaxAttempts = 3
 $LandoStarted = $false
+$BitnamiError = $false
 
 for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
     if ($attempt -eq 1) {
         Write-Host "[INFO] Starting Lando (attempt $attempt/$MaxAttempts)..." -ForegroundColor Cyan
         Write-Host ""
-        lando start
+        $landoOutput = lando start 2>&1 | Out-String
+        Write-Host $landoOutput
+
+        # Check for Bitnami image errors
+        if ($landoOutput -match 'bitnami/(nginx|mysql).*not found') {
+            $BitnamiError = $true
+        }
     }
     elseif ($attempt -eq 2) {
         Write-Host "[WARN] First attempt failed. Destroying and starting fresh (attempt $attempt/$MaxAttempts)..." -ForegroundColor Yellow
@@ -165,7 +304,12 @@ for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
         Start-Sleep -Seconds 2
         lando destroy -y 2>&1 | Out-Null
         Start-Sleep -Seconds 2
-        lando start
+        $landoOutput = lando start 2>&1 | Out-String
+        Write-Host $landoOutput
+
+        if ($landoOutput -match 'bitnami/(nginx|mysql).*not found') {
+            $BitnamiError = $true
+        }
     }
     else {
         Write-Host "[WARN] Second attempt failed. Performing aggressive cleanup (attempt $attempt/$MaxAttempts)..." -ForegroundColor Yellow
@@ -173,7 +317,41 @@ for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
         Start-Sleep -Seconds 2
         lando destroy -y 2>&1 | Out-Null
         Start-Sleep -Seconds 2
-        lando start
+        $landoOutput = lando start 2>&1 | Out-String
+        Write-Host $landoOutput
+
+        if ($landoOutput -match 'bitnami/(nginx|mysql).*not found') {
+            $BitnamiError = $true
+        }
+    }
+
+    # If Bitnami error detected, stop retrying
+    if ($BitnamiError) {
+        Write-Host ""
+        Write-Host "[ERROR] Deprecated Bitnami Docker images detected!" -ForegroundColor Red
+        Write-Host "[ERROR] This is a known issue with Lando beta versions" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "The ONLY solution is to update Lando to the latest stable version." -ForegroundColor Yellow
+        Write-Host ""
+
+        $upgrade = Read-Host "Would you like to download and install the latest stable version now? (Y/n)"
+
+        if ($upgrade -ne 'n') {
+            # Clean up failed containers first
+            Write-Host ""
+            Write-Host "[INFO] Cleaning up failed containers..." -ForegroundColor Cyan
+            lando destroy -y 2>&1 | Out-Null
+
+            Install-Lando
+        } else {
+            Write-Host ""
+            Write-Host "[INFO] Manual update steps:" -ForegroundColor Cyan
+            Write-Host "  1. Download: https://github.com/lando/lando/releases/latest" -ForegroundColor Cyan
+            Write-Host "  2. Install: lando-x64-stable.exe (requires Admin)" -ForegroundColor Cyan
+            Write-Host "  3. Restart PowerShell and run this script again" -ForegroundColor Cyan
+            Write-Host ""
+            exit 1
+        }
     }
 
     # Verify containers are actually running (not just checking exit code)
